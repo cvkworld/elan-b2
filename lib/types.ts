@@ -238,6 +238,75 @@ export interface MockExamSession {
   tasks: TaskVariant[];
 }
 
+export interface CuratedReadingCitation {
+  paragraphIndex: number;
+  sentenceIndex?: number;
+}
+
+export interface CuratedReadingCorrectionBase {
+  explanation: string;
+  citation?: CuratedReadingCitation;
+}
+
+export interface CuratedReadingMcqCorrection extends CuratedReadingCorrectionBase {
+  correctChoiceIndex: number;
+}
+
+export interface CuratedReadingTrueFalseCorrection extends CuratedReadingCorrectionBase {
+  correctValue: boolean;
+}
+
+export interface CuratedReadingShortAnswerCorrection extends CuratedReadingCorrectionBase {
+  modelAnswer: string;
+  keyPoints: string[];
+}
+
+export interface CuratedReadingQuestionBase {
+  id: string;
+  label: string;
+  prompt: string;
+}
+
+export interface CuratedReadingMcqQuestion extends CuratedReadingQuestionBase {
+  type: "mcq";
+  choices: string[];
+  correction: CuratedReadingMcqCorrection;
+}
+
+export interface CuratedReadingTrueFalseQuestion extends CuratedReadingQuestionBase {
+  type: "true-false";
+  correction: CuratedReadingTrueFalseCorrection;
+}
+
+export interface CuratedReadingShortAnswerQuestion extends CuratedReadingQuestionBase {
+  type: "short-answer";
+  placeholder?: string;
+  correction: CuratedReadingShortAnswerCorrection;
+}
+
+export type CuratedReadingQuestion =
+  | CuratedReadingMcqQuestion
+  | CuratedReadingTrueFalseQuestion
+  | CuratedReadingShortAnswerQuestion;
+
+export interface CuratedReadingExercise {
+  id: string;
+  title: string;
+  sourceLabel: string;
+  instructions?: string;
+  passage: string[];
+  vocabulary?: string[];
+  questions: CuratedReadingQuestion[];
+}
+
+export interface CuratedReadingPack {
+  id: string;
+  filename: string;
+  label: string;
+  importedAt: string;
+  exercises: CuratedReadingExercise[];
+}
+
 export interface SectionPracticePacks {
   listening: TaskVariant[];
   reading: TaskVariant[];
@@ -259,12 +328,13 @@ export interface TelemetryEvent {
 }
 
 export interface StoredCoachState {
-  version: 2;
+  version: 3;
   attempts: Attempt[];
   telemetry: TelemetryEvent[];
   todayBundle: TodayBundle;
   mockExam: MockExamSession;
   sectionPractice: SectionPracticePacks;
+  privateReadingPacks: CuratedReadingPack[];
 }
 
 export interface SkillNode {
