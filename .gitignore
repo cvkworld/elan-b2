@@ -9,3 +9,5 @@ npm-debug.log*
 .vercel
 *.tsbuildinfo
 DELF_B2_official
+
+.vercel

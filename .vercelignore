@@ -1,0 +1,9 @@
+.git
+.next
+.npm-cache
+coverage
+dist
+out
+node_modules
+DELF_B2_official
+*.tsbuildinfo
