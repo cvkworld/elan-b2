@@ -92,9 +92,12 @@ export interface ListeningContent {
 }
 
 export interface ReadingContent {
+  formatLabel: string;
+  examFocus: string;
   headline: string;
   kicker: string;
   passage: string[];
+  strategy: string[];
   questions: ObjectiveQuestion[];
 }
 
@@ -113,11 +116,19 @@ export interface GrammarContent {
 }
 
 export interface WritingContent {
+  formatLabel: string;
+  examFocus: string;
   brief: string;
   constraints: string[];
   checklist: string[];
   targetWords: number;
+  outline: string[];
   modelMoves: string[];
+  modelAnswer: {
+    title: string;
+    paragraphs: string[];
+    whyItScores: string[];
+  };
 }
 
 export interface SpeakingContent {
@@ -227,6 +238,13 @@ export interface MockExamSession {
   tasks: TaskVariant[];
 }
 
+export interface SectionPracticePacks {
+  listening: TaskVariant[];
+  reading: TaskVariant[];
+  writing: TaskVariant[];
+  speaking: TaskVariant[];
+}
+
 export interface TelemetryEvent {
   id: string;
   timestamp: string;
@@ -241,11 +259,12 @@ export interface TelemetryEvent {
 }
 
 export interface StoredCoachState {
-  version: 1;
+  version: 2;
   attempts: Attempt[];
   telemetry: TelemetryEvent[];
   todayBundle: TodayBundle;
   mockExam: MockExamSession;
+  sectionPractice: SectionPracticePacks;
 }
 
 export interface SkillNode {

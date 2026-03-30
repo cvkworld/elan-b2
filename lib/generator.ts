@@ -4,6 +4,7 @@ import {
   FeedbackReport,
   MockExamSession,
   ObjectiveQuestion,
+  SectionPracticePacks,
   SkillTag,
   StudyPlan,
   TaskTemplate,
@@ -22,7 +23,12 @@ import {
 } from "@/lib/delf-data";
 
 const skillTags = skillNodes.map((node) => node.id);
-const officialSections: ExamSection[] = ["listening", "reading", "writing", "speaking"];
+const officialSections: Array<Extract<ExamSection, "listening" | "reading" | "writing" | "speaking">> = [
+  "listening",
+  "reading",
+  "writing",
+  "speaking"
+];
 
 function hashString(value: string): number {
   let hash = 2166136261;
@@ -105,18 +111,23 @@ function summarizeRecentAttempts(attempts: Attempt[], section?: ExamSection) {
     .slice(-12);
 }
 
+function safeSplitClaim(claim: string) {
+  return claim.replace(/[«»"]/g, "").trim();
+}
+
 export function computeWeaknessProfile(attempts: Attempt[]): WeaknessProfile {
   const sectionScores = {
     listening: 48,
-    reading: 50,
-    writing: 46,
+    reading: 49,
+    writing: 42,
     speaking: 44,
     grammar: 47
   } satisfies Record<ExamSection, number>;
 
-  const skillScores = Object.fromEntries(
-    skillTags.map((tag) => [tag, 48])
-  ) as Record<SkillTag, number>;
+  const skillScores = Object.fromEntries(skillTags.map((tag) => [tag, 48])) as Record<
+    SkillTag,
+    number
+  >;
   const topicScores: Record<string, number> = {};
   const mistakeCounter = new Map<string, { count: number; section: ExamSection }>();
 
@@ -157,8 +168,9 @@ export function computeWeaknessProfile(attempts: Attempt[]): WeaknessProfile {
     .slice(0, 4)
     .map(([tag]) => tag as SkillTag);
 
-  const focusSection = (Object.entries(sectionScores) as Array<[ExamSection, number]>)
-    .sort((left, right) => left[1] - right[1])[0][0];
+  const focusSection = (Object.entries(sectionScores) as Array<[ExamSection, number]>).sort(
+    (left, right) => left[1] - right[1]
+  )[0][0];
 
   return {
     sectionScores,
@@ -207,11 +219,7 @@ function chooseTemplate(
   return ranked[0]?.template ?? getTemplates(section)[0];
 }
 
-function chooseTopic(
-  profile: WeaknessProfile,
-  random: () => number,
-  attempts: Attempt[]
-) {
+function chooseTopic(profile: WeaknessProfile, random: () => number, attempts: Attempt[]) {
   const ranked = topicSeeds
     .map((topic) => {
       const lowScore = 100 - (profile.topicScores[topic.id] ?? 52);
@@ -327,7 +335,7 @@ function composeListeningTask(
     scoringMethod: template.scoringMethod,
     coachHints: [
       "Lis d'abord les questions, puis note seulement les pivots.",
-      "Cherche la nuance finale : DELF B2 aime les positions non absolues."
+      "Cherche la nuance finale : le DELF B2 aime les positions non absolues."
     ],
     answerKey: questionPack(questions),
     content: {
@@ -344,7 +352,7 @@ function composeListeningTask(
   };
 }
 
-function composeReadingTask(
+function composeReadingEditorialTask(
   template: TaskTemplate,
   topic: (typeof topicSeeds)[number],
   random: () => number
@@ -353,12 +361,12 @@ function composeReadingTask(
   const counterpoint = pickOne(topic.counterpoints, random);
   const context = pickOne(topic.contexts, random);
   const audience = pickOne(topic.audiences, random);
-  const evidenceWords = sampleWithoutReplacement(topic.vocabulary, 3, random);
+  const vocabulary = sampleWithoutReplacement(topic.vocabulary, 3, random);
 
   const passage = [
-    `Dans ${context}, la question suivante revient souvent : ${claim} L'auteur rappelle que les décisions publiques sont rarement rejetées pour leur principe seul. Elles deviennent surtout fragiles quand leurs critères restent flous pour ${audience}.`,
-    `Pour étayer cette idée, il cite plusieurs situations où l'explication des priorités a changé la réception d'un projet. Les participants acceptent plus volontiers un effort quand ils voient comment il sera évalué, quels effets seront mesurés et à quel moment un ajustement sera possible.`,
-    `Le texte refuse pourtant tout enthousiasme naïf : ${counterpoint}. L'auteur conclut donc qu'une action crédible combine visibilité, rythme réaliste et langage compréhensible.`
+    `Dans ${context}, une même interrogation revient de plus en plus souvent : ${safeSplitClaim(claim)}. L'auteur explique que l'adhésion n'est pas seulement une question d'opinion. Elle dépend surtout de la manière dont ${audience} comprennent les critères retenus et les effets attendus.`,
+    `Pour étayer sa thèse, le texte montre que les décisions les mieux acceptées sont celles qui rendent visibles leurs étapes, leurs priorités et leurs indicateurs. Cette lisibilité réduit la méfiance, car chacun sait ce qui sera observé, à quel moment un ajustement sera possible et sur quelle base il sera discuté.`,
+    `L'auteur ne cède pourtant pas à l'optimisme facile : ${counterpoint}. La conclusion reste donc prudente. Il faut avancer de façon crédible, expliquer sans simplifier à l'excès et associer les personnes concernées au suivi des mesures.`
   ];
 
   const questions: ObjectiveQuestion[] = [
@@ -366,7 +374,7 @@ function composeReadingTask(
       id: createId("q", `${template.id}-${topic.id}-1`),
       prompt: "Quelle thèse l'auteur défend-il principalement ?",
       choices: [
-        "Une politique locale est crédible seulement si elle repose sur la contrainte.",
+        "Une politique crédible repose surtout sur la contrainte.",
         "La compréhension des critères rend l'action plus acceptable.",
         "Les habitants refusent toujours les changements qui touchent leur routine.",
         "Les projets les plus coûteux sont automatiquement les plus efficaces."
@@ -378,6 +386,20 @@ function composeReadingTask(
     },
     {
       id: createId("q", `${template.id}-${topic.id}-2`),
+      prompt: "À quoi sert le deuxième paragraphe ?",
+      choices: [
+        "À raconter l'origine historique du problème.",
+        "À prouver par des exemples ce qui rend un projet crédible.",
+        "À montrer que le contexte étudié est exceptionnel.",
+        "À décrire les réactions individuelles les plus extrêmes."
+      ],
+      correctIndex: 1,
+      explanation: "Le deuxième paragraphe joue le rôle de preuve argumentée.",
+      mistakeTag: "evidence-function-slip",
+      skillTag: "evidence-matching"
+    },
+    {
+      id: createId("q", `${template.id}-${topic.id}-3`),
       prompt: "Quel ton domine dans le dernier paragraphe ?",
       choices: [
         "Un enthousiasme sans réserve.",
@@ -391,30 +413,30 @@ function composeReadingTask(
       skillTag: "tone-analysis"
     },
     {
-      id: createId("q", `${template.id}-${topic.id}-3`),
-      prompt: "À quoi servent les exemples du deuxième paragraphe ?",
+      id: createId("q", `${template.id}-${topic.id}-4`),
+      prompt: "Quelle recommandation finale résume le mieux le texte ?",
       choices: [
-        "À raconter l'origine historique du problème.",
-        "À prouver que la transparence modifie la réception d'un projet.",
-        "À montrer que le contexte étudié est exceptionnel.",
-        "À décrire les réactions individuelles les plus extrêmes."
+        "Décider vite pour éviter toute contestation.",
+        "Retarder toute action jusqu'à l'accord de tous.",
+        "Expliquer la logique choisie et montrer comment l'action sera suivie.",
+        "Réserver la décision aux seuls experts."
       ],
-      correctIndex: 1,
-      explanation: "Les exemples servent de preuves, pas d'anecdotes décoratives.",
-      mistakeTag: "evidence-function-slip",
-      skillTag: "evidence-matching"
+      correctIndex: 2,
+      explanation: "La conclusion insiste sur l'explication et le suivi visible.",
+      mistakeTag: "recommendation-missed",
+      skillTag: "detail-discrimination"
     },
     {
-      id: createId("q", `${template.id}-${topic.id}-4`),
+      id: createId("q", `${template.id}-${topic.id}-5`),
       prompt: "Quel groupe de mots aide le plus à retenir le cœur du texte ?",
       choices: [
-        evidenceWords,
-        ["urgence", "sanction", "exception"],
-        ["routine", "microphone", "archives"],
-        ["géographie", "nostalgie", "isolement"]
-      ].map((choice) => choice.join(", ")),
+        vocabulary.join(", "),
+        "nostalgie, géographie, sanction",
+        "microphone, archive, détour",
+        "urgence, hasard, habitude"
+      ],
       correctIndex: 0,
-      explanation: "Ce champ lexical correspond au raisonnement du texte.",
+      explanation: "Le champ lexical choisi renvoie à l'argument central du texte.",
       mistakeTag: "keyword-slip",
       skillTag: "detail-discrimination"
     }
@@ -443,129 +465,358 @@ function composeReadingTask(
     estimatedMinutes: template.estimatedMinutes,
     scoringMethod: template.scoringMethod,
     coachHints: [
-      "Commence par le titre et la conclusion pour repérer la posture.",
-      "Relie chaque exemple à la thèse qu'il sert."
+      "Lis d'abord le titre, puis la conclusion pour repérer la posture.",
+      "Demande-toi à chaque paragraphe : preuve, nuance ou recommandation ?"
     ],
     answerKey: questionPack(questions),
     content: {
+      formatLabel: template.format,
+      examFocus: "Thèse centrale, ton, fonction des exemples et recommandation finale.",
       headline: "Pourquoi la clarté change la réception d'un projet",
       kicker: topic.label,
       passage,
+      strategy: [
+        "Encadre les marqueurs de prudence : pourtant, cependant, toutefois, certes.",
+        "Repère ce qui est affirmé et ce qui est seulement nuancé.",
+        "Relie chaque exemple à l'idée qu'il vient soutenir."
+      ],
       questions
     }
   };
 }
 
-function composeGrammarTask(
+function composeReadingForumTask(
   template: TaskTemplate,
   topic: (typeof topicSeeds)[number],
-  random: () => number,
-  focusSkill?: SkillTag
+  random: () => number
 ): TaskVariant {
-  const focus =
-    focusSkill === "hypothesis" || template.id === "grammar-condition"
-      ? "Hypothèse, prudence et reformulation"
-      : "Connecteurs utiles pour nuancer";
+  const claim = pickOne(topic.claims, random);
+  const counterpoint = pickOne(topic.counterpoints, random);
+  const context = pickOne(topic.contexts, random);
+  const friction = pickOne(topic.frictionPoints, random);
 
-  const items =
-    template.id === "grammar-condition"
-      ? [
-          {
-            id: createId("g", `${topic.id}-1`),
-            prompt: `Si les critères étaient expliqués plus tôt, le public ______ davantage au projet.`,
-            choices: ["adhère", "adhérerait", "adhérera", "adhérait"],
-            correctIndex: 1,
-            explanation: "Après 'si' à l'imparfait, la conséquence se met au conditionnel présent.",
-            skillTag: "hypothesis" as const
-          },
-          {
-            id: createId("g", `${topic.id}-2`),
-            prompt: `L'animatrice a rappelé que la mesure ______ ajustée après l'évaluation.`,
-            choices: ["peut être", "pourrait être", "aurait pu être", "sera"],
-            correctIndex: 1,
-            explanation: "Le discours rapporté prudent attend ici une hypothèse, pas une certitude.",
-            skillTag: "reported-speech" as const
-          },
-          {
-            id: createId("g", `${topic.id}-3`),
-            prompt: `Réécris l'idée en version plus nuancée : 'Cette solution résout tout.'`,
-            choices: [
-              "Cette solution résout tout.",
-              "Cette solution pourrait répondre à une partie du problème.",
-              "Cette solution résolvait tout hier.",
-              "Cette solution a tout résolu, certainement."
-            ],
-            correctIndex: 1,
-            explanation: "B2 préfère souvent une formulation prudente et crédible.",
-            skillTag: "error-correction" as const
-          }
-        ]
-      : [
-          {
-            id: createId("g", `${topic.id}-1`),
-            prompt: `La mesure semble utile ; ______, elle doit rester lisible pour le public.`,
-            choices: ["cependant", "donc", "par conséquent", "en plus"],
-            correctIndex: 0,
-            explanation: "Il faut un lien d'opposition nuancée, pas de conséquence.",
-            skillTag: "connectors" as const
-          },
-          {
-            id: createId("g", `${topic.id}-2`),
-            prompt: `Le projet est exigeant. ______, ses bénéfices concrets encouragent la participation.`,
-            choices: ["En revanche", "Bref", "Au lieu de", "En effet de"],
-            correctIndex: 0,
-            explanation: "La seconde phrase oppose l'effort et l'avantage.",
-            skillTag: "connectors" as const
-          },
-          {
-            id: createId("g", `${topic.id}-3`),
-            prompt: "Choisis la version la plus naturelle :",
-            choices: [
-              "Premièrement, le projet est utile. Deuxièmement, il est utile aussi.",
-              "D'abord, le projet apporte un gain concret ; ensuite, il reste ajustable.",
-              "Le projet est utile mais donc tout le monde accepte.",
-              "Par ailleurs cependant le projet convainc."
-            ],
-            correctIndex: 1,
-            explanation: "Les connecteurs doivent structurer sans surcharge.",
-            skillTag: "error-correction" as const
-          }
-        ];
+  const passage = [
+    `Message initial - Sur un espace de discussion lié à ${context}, une participante lance le débat autour de cette idée : ${safeSplitClaim(claim)}. Elle propose d'expérimenter une mesure simple pendant quelques semaines afin de vérifier son effet réel sur le terrain.`,
+    `Réponse 1 - Un premier intervenant soutient la proposition. Selon lui, la difficulté n'est pas d'agir, mais d'expliquer clairement comment l'essai sera évalué. Il ajoute qu'un cadre limité dans le temps rassure les personnes qui hésitent encore.`,
+    `Réponse 2 - Une autre contributrice reste plus réservée. Elle rappelle que ${counterpoint} et que ${friction} risque de provoquer des malentendus si la communication reste trop rapide.`,
+    `Synthèse - Le modérateur retient donc une piste médiane : mener un test visible, publier les critères de suivi et ouvrir un temps de retour afin de corriger ce qui fonctionne mal avant toute généralisation.`
+  ];
 
+  const questions: ObjectiveQuestion[] = [
+    {
+      id: createId("q", `${template.id}-${topic.id}-1`),
+      prompt: "Quelle proposition apparaît dans le message initial ?",
+      choices: [
+        "Supprimer toute expérimentation locale.",
+        "Lancer un essai limité et observable avant de décider.",
+        "Réserver la discussion aux experts du sujet.",
+        "Reporter le débat à une date indéterminée."
+      ],
+      correctIndex: 1,
+      explanation: "Le message initial propose un test limité dans le temps.",
+      mistakeTag: "proposal-missed",
+      skillTag: "task-completion"
+    },
+    {
+      id: createId("q", `${template.id}-${topic.id}-2`),
+      prompt: "Quel intervenant exprime la réserve la plus nette ?",
+      choices: [
+        "Le message initial.",
+        "Le premier répondant.",
+        "La seconde contributrice.",
+        "Le modérateur."
+      ],
+      correctIndex: 2,
+      explanation: "La deuxième réponse insiste sur les limites et les risques de malentendu.",
+      mistakeTag: "voice-mixup",
+      skillTag: "tone-analysis"
+    },
+    {
+      id: createId("q", `${template.id}-${topic.id}-3`),
+      prompt: "Quel point commun relie malgré tout les interventions ?",
+      choices: [
+        "Tous demandent l'abandon immédiat du projet.",
+        "Tous veulent une décision discrète et sans communication.",
+        "Tous soulignent la nécessité de rendre les critères lisibles.",
+        "Tous préfèrent une solution strictement nationale."
+      ],
+      correctIndex: 2,
+      explanation: "Même la réponse la plus réservée insiste sur la clarté de la communication.",
+      mistakeTag: "consensus-slip",
+      skillTag: "evidence-matching"
+    },
+    {
+      id: createId("q", `${template.id}-${topic.id}-4`),
+      prompt: "Quel ton adopte la synthèse du modérateur ?",
+      choices: [
+        "Un ton de compromis opérationnel.",
+        "Un ton ironique et distant.",
+        "Un ton polémique.",
+        "Un ton purement émotionnel."
+      ],
+      correctIndex: 0,
+      explanation: "Le modérateur reformule pour dégager un compromis praticable.",
+      mistakeTag: "tone-missed",
+      skillTag: "tone-analysis"
+    },
+    {
+      id: createId("q", `${template.id}-${topic.id}-5`),
+      prompt: "Quelle décision finale correspond le mieux à la synthèse ?",
+      choices: [
+        "Généraliser immédiatement la proposition.",
+        "Refuser toute mesure sans nouvelle étude.",
+        "Tester, publier les critères puis ajuster avant d'étendre.",
+        "Transférer la responsabilité à un acteur extérieur."
+      ],
+      correctIndex: 2,
+      explanation: "La synthèse défend une expérimentation suivie d'ajustements.",
+      mistakeTag: "compromise-missed",
+      skillTag: "task-completion"
+    }
+  ];
+
+  const family = pickOne(template.variationFamilies, random);
   const fingerprint = createFingerprint([
     template.id,
     template.cooldownFamily,
     topic.id,
-    focus
+    family,
+    slugify(friction)
   ]);
 
   return {
     id: createId(template.id, fingerprint),
-    section: "grammar",
+    section: "reading",
     templateId: template.id,
     fingerprint,
-    title: `${sectionMeta.grammar.label} · ${focus}`,
-    subtitle: `${topic.label} · drill utile`,
+    title: `${sectionMeta.reading.label} · ${topic.label}`,
+    subtitle: `${template.label} · ${context}`,
     topicId: topic.id,
     topicLabel: topic.label,
     skillTags: template.skillTags,
-    difficulty: template.id === "grammar-condition" ? 4 : 3,
+    difficulty: 3,
     estimatedMinutes: template.estimatedMinutes,
     scoringMethod: template.scoringMethod,
     coachHints: [
-      "Choisis le lien logique avant de penser au mot exact.",
-      "Réécris tes erreurs de production avec ces structures."
+      "Dans un forum DELF, repère d'abord qui propose, qui nuance et qui tranche.",
+      "La bonne réponse est souvent un compromis, pas une position extrême."
     ],
-    answerKey: items.map((item) => ({
-      questionId: item.id,
-      correctIndex: item.correctIndex,
-      rationale: item.explanation,
-      skillTag: item.skillTag
-    })),
+    answerKey: questionPack(questions),
     content: {
-      focus,
-      items
+      formatLabel: template.format,
+      examFocus: "Voix multiples, réserve implicite, compromis final et fonction de la synthèse.",
+      headline: "Forum croisé : comment décider sans répéter les mêmes erreurs",
+      kicker: topic.label,
+      passage,
+      strategy: [
+        "Attribue une étiquette mentale à chaque voix : proposition, soutien, réserve, arbitrage.",
+        "Cherche ce qui est partagé par plusieurs voix, même si leur ton diffère.",
+        "Méfie-toi des réponses trop radicales : la synthèse B2 préfère souvent l'ajustement."
+      ],
+      questions
     }
+  };
+}
+
+function composeReadingAnalysisTask(
+  template: TaskTemplate,
+  topic: (typeof topicSeeds)[number],
+  random: () => number
+): TaskVariant {
+  const claim = pickOne(topic.claims, random);
+  const counterpoint = pickOne(topic.counterpoints, random);
+  const context = pickOne(topic.contexts, random);
+  const friction = pickOne(topic.frictionPoints, random);
+  const vocabulary = sampleWithoutReplacement(topic.vocabulary, 3, random);
+
+  const passage = [
+    `Un dossier consacré à ${context} part du constat suivant : ${safeSplitClaim(claim)}. L'auteur précise toutefois que la difficulté n'est pas seulement idéologique. Elle tient souvent à ${friction}, c'est-à-dire à la distance entre le principe affiché et la façon dont les personnes vivent concrètement la mesure.`,
+    `Le texte analyse ensuite plusieurs situations où une mesure pourtant pertinente a été mal reçue. Dans chaque cas, l'absence de critères visibles a brouillé la perception des bénéfices. À l'inverse, lorsque le dispositif était expliqué avec des objectifs simples et des points d'étape publics, la discussion devenait plus sereine.`,
+    `L'auteur garde néanmoins une réserve nette : ${counterpoint}. La recommandation finale n'est donc pas de multiplier les annonces, mais de choisir peu d'objectifs, de montrer comment ils seront suivis et d'accepter une phase d'ajustement avant toute extension du dispositif.`
+  ];
+
+  const questions: ObjectiveQuestion[] = [
+    {
+      id: createId("q", `${template.id}-${topic.id}-1`),
+      prompt: "Quel diagnostic principal le texte propose-t-il ?",
+      choices: [
+        "Le problème vient d'abord d'un rejet idéologique.",
+        "La difficulté vient surtout de l'écart entre principe et expérience concrète.",
+        "Le public manque toujours d'informations chiffrées très complexes.",
+        "Les experts refusent toute phase d'ajustement."
+      ],
+      correctIndex: 1,
+      explanation: "Le premier paragraphe insiste sur la distance entre principe et vécu concret.",
+      mistakeTag: "diagnosis-missed",
+      skillTag: "detail-discrimination"
+    },
+    {
+      id: createId("q", `${template.id}-${topic.id}-2`),
+      prompt: "Pourquoi l'auteur évoque-t-il plusieurs situations dans le deuxième paragraphe ?",
+      choices: [
+        "Pour donner des preuves comparables à son analyse.",
+        "Pour détourner l'attention de sa thèse principale.",
+        "Pour raconter l'histoire complète du sujet.",
+        "Pour montrer que tous les contextes se ressemblent parfaitement."
+      ],
+      correctIndex: 0,
+      explanation: "Ces situations servent de matériau d'analyse, pas d'anecdotes gratuites.",
+      mistakeTag: "evidence-function-slip",
+      skillTag: "evidence-matching"
+    },
+    {
+      id: createId("q", `${template.id}-${topic.id}-3`),
+      prompt: "Quelle réserve l'auteur maintient-il ?",
+      choices: [
+        `Il rappelle que ${counterpoint}.`,
+        "Il affirme que toute phase d'essai est inutile.",
+        "Il annonce que la solution fonctionne partout immédiatement.",
+        "Il refuse toute explication au public."
+      ],
+      correctIndex: 0,
+      explanation: "Le dernier paragraphe introduit explicitement cette réserve.",
+      mistakeTag: "nuance-missed",
+      skillTag: "tone-analysis"
+    },
+    {
+      id: createId("q", `${template.id}-${topic.id}-4`),
+      prompt: "Quelle est la recommandation finale du texte ?",
+      choices: [
+        "Multiplier les annonces pour occuper le débat public.",
+        "Choisir peu d'objectifs, les suivre clairement et accepter un ajustement.",
+        "Attendre une solution parfaite avant toute action.",
+        "Confier la décision à un acteur extérieur au contexte."
+      ],
+      correctIndex: 1,
+      explanation: "La conclusion retient une logique de clarté, de suivi et d'ajustement.",
+      mistakeTag: "recommendation-missed",
+      skillTag: "evidence-matching"
+    },
+    {
+      id: createId("q", `${template.id}-${topic.id}-5`),
+      prompt: "Quel trio lexical résume le mieux le raisonnement ?",
+      choices: [
+        vocabulary.join(", "),
+        "hasard, nostalgie, détour",
+        "colère, rupture, sanction",
+        "distance, vitesse, frontière"
+      ],
+      correctIndex: 0,
+      explanation: "Le vocabulaire retenu renvoie au cœur argumentatif du dossier.",
+      mistakeTag: "keyword-slip",
+      skillTag: "detail-discrimination"
+    }
+  ];
+
+  const family = pickOne(template.variationFamilies, random);
+  const fingerprint = createFingerprint([
+    template.id,
+    template.cooldownFamily,
+    topic.id,
+    family,
+    slugify(claim)
+  ]);
+
+  return {
+    id: createId(template.id, fingerprint),
+    section: "reading",
+    templateId: template.id,
+    fingerprint,
+    title: `${sectionMeta.reading.label} · ${topic.label}`,
+    subtitle: `${template.label} · ${context}`,
+    topicId: topic.id,
+    topicLabel: topic.label,
+    skillTags: template.skillTags,
+    difficulty: 4,
+    estimatedMinutes: template.estimatedMinutes,
+    scoringMethod: template.scoringMethod,
+    coachHints: [
+      "Sépare bien diagnostic, preuve et recommandation finale.",
+      "Au DELF B2, un texte analytique garde souvent une réserve avant de conclure."
+    ],
+    answerKey: questionPack(questions),
+    content: {
+      formatLabel: template.format,
+      examFocus: "Diagnostic, exemples comparables, réserve et recommandation stratégique.",
+      headline: "Rendre une décision crédible sans la rendre rigide",
+      kicker: topic.label,
+      passage,
+      strategy: [
+        "Note à part la thèse, puis la réserve, puis la recommandation.",
+        "Ne confonds pas un exemple de cas avec l'idée générale du texte.",
+        "Surveille les adverbes de nuance : toutefois, néanmoins, pourtant."
+      ],
+      questions
+    }
+  };
+}
+
+function composeReadingTask(
+  template: TaskTemplate,
+  topic: (typeof topicSeeds)[number],
+  random: () => number
+): TaskVariant {
+  if (template.id === "read-notice") {
+    return composeReadingForumTask(template, topic, random);
+  }
+
+  if (template.id === "read-analysis") {
+    return composeReadingAnalysisTask(template, topic, random);
+  }
+
+  return composeReadingEditorialTask(template, topic, random);
+}
+
+function buildWritingIntro(templateId: string, claim: string) {
+  if (templateId === "write-letter") {
+    return `Madame, Monsieur, dans de nombreux contextes, on entend aujourd'hui que ${safeSplitClaim(claim)}. À mes yeux, cette idée mérite d'être défendue, à condition d'être mise en œuvre avec méthode et lisibilité.`;
+  }
+
+  if (templateId === "write-article") {
+    return `On présente souvent l'idée suivante comme une évidence : ${safeSplitClaim(claim)}. Pourtant, le vrai débat ne porte pas seulement sur le principe, mais sur la manière d'en faire une mesure concrète, crédible et utile.`;
+  }
+
+  return `Je voudrais réagir à cette affirmation souvent reprise dans les échanges récents : ${safeSplitClaim(claim)}. Pour ma part, je pense qu'elle va dans la bonne direction, mais seulement si l'on fixe des règles claires et des objectifs visibles.`;
+}
+
+function buildWritingModelAnswer(
+  template: TaskTemplate,
+  topic: (typeof topicSeeds)[number],
+  context: string,
+  audience: string,
+  claim: string,
+  counterpoint: string,
+  friction: string,
+  vocabulary: string[]
+) {
+  const title =
+    template.id === "write-letter"
+      ? "Modèle haut niveau : lettre argumentative"
+      : template.id === "write-article"
+        ? "Modèle haut niveau : article d'opinion"
+        : "Modèle haut niveau : contribution structurée";
+
+  const paragraphs = [
+    buildWritingIntro(template.id, claim),
+    `D'abord, une décision devient plus acceptable lorsqu'elle rend visibles ses critères. Dans ${context}, cela signifie expliquer à ${audience} ce qui sera vraiment évalué, comment le suivi sera organisé et pourquoi certaines priorités ont été retenues. Cette clarté réduit la méfiance et transforme la discussion en débat de fond plutôt qu'en simple réaction d'humeur.`,
+    `Ensuite, une mesure utile doit améliorer concrètement l'expérience vécue. Si l'on veut progresser sur ce thème, il faut relier les principes à des gestes simples : mieux partager l'information, prévoir un calendrier réaliste et montrer des résultats observables. Autrement dit, le vocabulaire de ${vocabulary.join(", ")} doit sortir du discours abstrait pour entrer dans des habitudes régulières.`,
+    `Certes, on peut objecter que ${counterpoint}. Cette réserve est sérieuse et elle ne doit pas être écartée trop vite. Cependant, elle ne justifie pas l'immobilisme. Au contraire, elle montre qu'il faut agir avec prudence : expérimenter, évaluer, corriger, puis seulement généraliser ce qui s'avère réellement convaincant.`,
+    `En conclusion, je suis donc favorable à cette orientation, à condition qu'elle traite vraiment ${friction}. Une bonne réponse ne consiste pas à promettre une transformation spectaculaire, mais à proposer une méthode lisible, suivie et ajustable. C'est ainsi, me semble-t-il, qu'on peut convaincre durablement sans forcer l'adhésion.`
+  ];
+
+  if (template.id === "write-letter") {
+    paragraphs.push("Je vous prie d'agréer, Madame, Monsieur, l'expression de mes salutations distinguées.");
+  }
+
+  return {
+    title,
+    paragraphs,
+    whyItScores: [
+      "La position est annoncée dès l'ouverture et reste stable jusqu'à la conclusion.",
+      "Deux arguments distincts sont développés avec logique et exemples plausibles.",
+      "La concession est réelle, puis dépassée par une réponse nuancée.",
+      "La conclusion propose une action concrète au lieu d'un slogan abstrait."
+    ]
   };
 }
 
@@ -578,12 +829,34 @@ function composeWritingTask(
   const audience = pickOne(topic.audiences, random);
   const claim = pickOne(topic.claims, random);
   const counterpoint = pickOne(topic.counterpoints, random);
+  const friction = pickOne(topic.frictionPoints, random);
+  const vocabulary = sampleWithoutReplacement(topic.vocabulary, 3, random);
+  const family = pickOne(template.variationFamilies, random);
   const fingerprint = createFingerprint([
     template.id,
     template.cooldownFamily,
     topic.id,
+    family,
     slugify(claim)
   ]);
+
+  const targetLabel =
+    template.id === "write-letter"
+      ? `Tu écris une lettre ouverte liée à ${context}.`
+      : template.id === "write-article"
+        ? `Tu rédiges un article court pour un support lié à ${context}.`
+        : `Tu postes une contribution argumentée sur un espace lié à ${context}.`;
+
+  const modelAnswer = buildWritingModelAnswer(
+    template,
+    topic,
+    context,
+    audience,
+    claim,
+    counterpoint,
+    friction,
+    vocabulary
+  );
 
   return {
     id: createId(template.id, fingerprint),
@@ -600,28 +873,39 @@ function composeWritingTask(
     scoringMethod: "rubric",
     rubric: writingRubric,
     coachHints: [
-      "Annonce ta position en une phrase nette dès l'introduction.",
-      "Ajoute un contre-argument bref avant ta conclusion."
+      "Annonce ta position dans les deux premières phrases.",
+      "Garde une vraie concession avant de finir sur une proposition concrète."
     ],
     content: {
-      brief: `Tu écris pour ${context}. Rédige un texte argumentatif destiné à ${audience}. Tu réagis à l'idée suivante : « ${claim} ». Prends position, développe au moins deux arguments, réponds à une objection possible (${counterpoint}) et termine par une proposition concrète.`,
+      formatLabel: template.format,
+      examFocus: "Thèse nette, deux arguments, concession crédible et proposition finale.",
+      brief: `${targetLabel} Ton texte s'adresse à ${audience}. Tu réagis à l'idée suivante : « ${claim} ». Prends position, développe au moins deux arguments, réponds à une objection possible (${counterpoint}) et termine par une recommandation concrète.`,
       constraints: [
         "250 mots minimum.",
-        "Ton registre doit rester clair, structuré et adapté à un lecteur inconnu.",
-        "Insère une concession et une recommandation finale."
+        "Le registre doit rester clair, structuré et adapté à un lecteur inconnu.",
+        "Insère une concession, puis une recommandation finale.",
+        "Évite les slogans vagues : privilégie un exemple plausible."
       ],
       checklist: [
         "Position annoncée dès l'introduction.",
-        "Deux arguments illustrés par un exemple concret.",
-        "Une concession ou objection réellement traitée.",
-        "Conclusion qui ouvre vers une action."
+        "Deux arguments différents, chacun illustré.",
+        "Une objection traitée, pas seulement mentionnée.",
+        "Une conclusion qui ouvre sur une action ou une condition."
       ],
       targetWords: 250,
+      outline: [
+        "Introduction : reformuler le thème et annoncer clairement ta position.",
+        "Argument 1 : montrer un bénéfice concret avec un exemple crédible.",
+        "Argument 2 : ajouter un critère de méthode, d'équité ou d'efficacité.",
+        "Concession : reconnaître une objection, puis la recadrer.",
+        "Conclusion : proposer une mesure réaliste ou une condition de réussite."
+      ],
       modelMoves: [
         "D'abord situer le problème, puis prendre position sans détour.",
-        "Nuancer avec 'certes', 'cependant', 'en revanche', 'à condition que'.",
-        "Conclure avec une mesure réaliste au lieu d'un slogan."
-      ]
+        "Nuancer avec « certes », « cependant », « en revanche », « à condition que ».",
+        "Conclure avec une mesure réaliste au lieu d'une formule générale."
+      ],
+      modelAnswer
     }
   };
 }
@@ -687,6 +971,114 @@ function composeSpeakingTask(
   };
 }
 
+function composeGrammarTask(
+  template: TaskTemplate,
+  topic: (typeof topicSeeds)[number],
+  random: () => number,
+  focusSkill?: SkillTag
+): TaskVariant {
+  const focus =
+    focusSkill === "hypothesis" || template.id === "grammar-condition"
+      ? "Hypothèse, prudence et reformulation"
+      : "Connecteurs utiles pour nuancer";
+
+  const items =
+    template.id === "grammar-condition"
+      ? [
+          {
+            id: createId("g", `${topic.id}-1`),
+            prompt: `Si les critères étaient expliqués plus tôt, le public ______ davantage au projet.`,
+            choices: ["adhère", "adhérerait", "adhérera", "adhérait"],
+            correctIndex: 1,
+            explanation: "Après « si » à l'imparfait, la conséquence se met au conditionnel présent.",
+            skillTag: "hypothesis" as const
+          },
+          {
+            id: createId("g", `${topic.id}-2`),
+            prompt: `L'animatrice a rappelé que la mesure ______ ajustée après l'évaluation.`,
+            choices: ["peut être", "pourrait être", "aurait pu être", "sera"],
+            correctIndex: 1,
+            explanation: "Le discours rapporté prudent attend ici une hypothèse, pas une certitude.",
+            skillTag: "reported-speech" as const
+          },
+          {
+            id: createId("g", `${topic.id}-3`),
+            prompt: `Réécris l'idée en version plus nuancée : « Cette solution résout tout. »`,
+            choices: [
+              "Cette solution résout tout.",
+              "Cette solution pourrait répondre à une partie du problème.",
+              "Cette solution résolvait tout hier.",
+              "Cette solution a tout résolu, certainement."
+            ],
+            correctIndex: 1,
+            explanation: "B2 préfère souvent une formulation prudente et crédible.",
+            skillTag: "error-correction" as const
+          }
+        ]
+      : [
+          {
+            id: createId("g", `${topic.id}-1`),
+            prompt: `La mesure semble utile ; ______, elle doit rester lisible pour le public.`,
+            choices: ["cependant", "donc", "par conséquent", "en plus"],
+            correctIndex: 0,
+            explanation: "Il faut un lien d'opposition nuancée, pas de conséquence.",
+            skillTag: "connectors" as const
+          },
+          {
+            id: createId("g", `${topic.id}-2`),
+            prompt: `Le projet est exigeant. ______, ses bénéfices concrets encouragent la participation.`,
+            choices: ["En revanche", "Bref", "Au lieu de", "En effet de"],
+            correctIndex: 0,
+            explanation: "La seconde phrase oppose l'effort et l'avantage.",
+            skillTag: "connectors" as const
+          },
+          {
+            id: createId("g", `${topic.id}-3`),
+            prompt: "Choisis la version la plus naturelle :",
+            choices: [
+              "Premièrement, le projet est utile. Deuxièmement, il est utile aussi.",
+              "D'abord, le projet apporte un gain concret ; ensuite, il reste ajustable.",
+              "Le projet est utile mais donc tout le monde accepte.",
+              "Par ailleurs cependant le projet convainc."
+            ],
+            correctIndex: 1,
+            explanation: "Les connecteurs doivent structurer sans surcharge.",
+            skillTag: "error-correction" as const
+          }
+        ];
+
+  const fingerprint = createFingerprint([template.id, template.cooldownFamily, topic.id, focus]);
+
+  return {
+    id: createId(template.id, fingerprint),
+    section: "grammar",
+    templateId: template.id,
+    fingerprint,
+    title: `${sectionMeta.grammar.label} · ${focus}`,
+    subtitle: `${topic.label} · drill utile`,
+    topicId: topic.id,
+    topicLabel: topic.label,
+    skillTags: template.skillTags,
+    difficulty: template.id === "grammar-condition" ? 4 : 3,
+    estimatedMinutes: template.estimatedMinutes,
+    scoringMethod: template.scoringMethod,
+    coachHints: [
+      "Choisis le lien logique avant de penser au mot exact.",
+      "Réécris tes erreurs de production avec ces structures."
+    ],
+    answerKey: items.map((item) => ({
+      questionId: item.id,
+      correctIndex: item.correctIndex,
+      rationale: item.explanation,
+      skillTag: item.skillTag
+    })),
+    content: {
+      focus,
+      items
+    }
+  };
+}
+
 function buildCandidateTask(
   section: ExamSection,
   template: TaskTemplate,
@@ -694,18 +1086,10 @@ function buildCandidateTask(
   random: () => number,
   preferredSkill?: SkillTag
 ) {
-  if (section === "listening") {
-    return composeListeningTask(template, topic, random);
-  }
-  if (section === "reading") {
-    return composeReadingTask(template, topic, random);
-  }
-  if (section === "grammar") {
-    return composeGrammarTask(template, topic, random, preferredSkill);
-  }
-  if (section === "writing") {
-    return composeWritingTask(template, topic, random);
-  }
+  if (section === "listening") return composeListeningTask(template, topic, random);
+  if (section === "reading") return composeReadingTask(template, topic, random);
+  if (section === "grammar") return composeGrammarTask(template, topic, random, preferredSkill);
+  if (section === "writing") return composeWritingTask(template, topic, random);
   return composeSpeakingTask(template, topic, random);
 }
 
@@ -716,9 +1100,7 @@ export function generateTaskVariant(options: {
   preferredSkill?: SkillTag;
 }): { task: TaskVariant; telemetry: TelemetryEvent[] } {
   const profile = computeWeaknessProfile(options.attempts);
-  const recentFingerprints = new Set(
-    options.attempts.slice(-16).map((attempt) => attempt.taskFingerprint)
-  );
+  const recentFingerprints = new Set(options.attempts.slice(-16).map((attempt) => attempt.taskFingerprint));
 
   let rerollCount = 0;
   let candidate: TaskVariant;
@@ -735,15 +1117,10 @@ export function generateTaskVariant(options: {
       options.preferredSkill
     );
     const topic = chooseTopic(profile, random, options.attempts);
-    candidate = buildCandidateTask(
-      options.section,
-      template,
-      topic,
-      random,
-      options.preferredSkill
-    );
+    candidate = buildCandidateTask(options.section, template, topic, random, options.preferredSkill);
     rerollCount += 1;
-  } while (recentFingerprints.has(candidate.fingerprint) && rerollCount < 6);
+  } while (recentFingerprints.has(candidate.fingerprint) && rerollCount < 8);
+
   const telemetry: TelemetryEvent[] = [
     {
       id: createEventId(`${candidate.fingerprint}-generation`),
@@ -776,36 +1153,134 @@ function pickGrammarFocus(profile: WeaknessProfile): SkillTag {
     "nominalization"
   ];
 
-  return [...grammarTags].sort(
-    (left, right) => profile.skillScores[left] - profile.skillScores[right]
-  )[0];
+  return [...grammarTags].sort((left, right) => profile.skillScores[left] - profile.skillScores[right])[0];
 }
 
-export function generateTodayBundle(attempts: Attempt[], dateKey: string): {
-  bundle: TodayBundle;
-  telemetry: TelemetryEvent[];
-} {
-  const profile = computeWeaknessProfile(attempts);
-  const comprehensionSection =
-    profile.sectionScores.listening <= profile.sectionScores.reading ? "listening" : "reading";
-  const productiveSection =
-    profile.sectionScores.writing <= profile.sectionScores.speaking ? "writing" : "speaking";
+function createShadowAttempt(task: TaskVariant, index: number): Attempt {
+  return {
+    id: `shadow-${task.id}-${index}`,
+    taskId: task.id,
+    taskFingerprint: task.fingerprint,
+    section: task.section,
+    templateId: task.templateId,
+    topicId: task.topicId,
+    topicLabel: task.topicLabel,
+    timestamp: new Date().toISOString(),
+    score: 50,
+    skillTags: task.skillTags,
+    mistakeTags: [],
+    responseSummary: "Shadow practice attempt"
+  };
+}
 
-  const comprehension = generateTaskVariant({
-    section: comprehensionSection,
+export function generateSectionPracticePack(options: {
+  section: Extract<ExamSection, "listening" | "reading" | "writing" | "speaking">;
+  attempts: Attempt[];
+  dateKey: string;
+  variantSeed?: string;
+  count?: number;
+}): { tasks: TaskVariant[]; telemetry: TelemetryEvent[] } {
+  const count =
+    options.count ??
+    (options.section === "reading" || options.section === "writing" ? 3 : 2);
+  const tasks: TaskVariant[] = [];
+  const telemetry: TelemetryEvent[] = [];
+  let shadowAttempts = [...options.attempts];
+  const seen = new Set<string>();
+  const seedBase = options.variantSeed ?? options.dateKey;
+
+  for (let index = 0; index < count; index += 1) {
+    let attempt = 0;
+    let generated: { task: TaskVariant; telemetry: TelemetryEvent[] } | null = null;
+
+    do {
+      generated = generateTaskVariant({
+        section: options.section,
+        attempts: shadowAttempts,
+        seedKey: `${seedBase}-${options.section}-${index}-${attempt}`
+      });
+      attempt += 1;
+    } while (generated && seen.has(generated.task.fingerprint) && attempt < 8);
+
+    if (!generated) {
+      continue;
+    }
+
+    tasks.push(generated.task);
+    telemetry.push(...generated.telemetry);
+    seen.add(generated.task.fingerprint);
+    shadowAttempts = [...shadowAttempts, createShadowAttempt(generated.task, index)];
+  }
+
+  return { tasks, telemetry };
+}
+
+export function generateSectionPractice(
+  attempts: Attempt[],
+  dateKey: string,
+  variantSeed = dateKey
+): { packs: SectionPracticePacks; telemetry: TelemetryEvent[] } {
+  const reading = generateSectionPracticePack({
+    section: "reading",
     attempts,
-    seedKey: `${dateKey}-comp`
+    dateKey,
+    variantSeed: `${variantSeed}-reading`,
+    count: 3
+  });
+  const writing = generateSectionPracticePack({
+    section: "writing",
+    attempts: [...attempts, ...reading.tasks.map((task, index) => createShadowAttempt(task, index))],
+    dateKey,
+    variantSeed: `${variantSeed}-writing`,
+    count: 3
+  });
+  const listening = generateSectionPracticePack({
+    section: "listening",
+    attempts,
+    dateKey,
+    variantSeed: `${variantSeed}-listening`,
+    count: 2
+  });
+  const speaking = generateSectionPracticePack({
+    section: "speaking",
+    attempts,
+    dateKey,
+    variantSeed: `${variantSeed}-speaking`,
+    count: 2
+  });
+
+  return {
+    packs: {
+      listening: listening.tasks,
+      reading: reading.tasks,
+      writing: writing.tasks,
+      speaking: speaking.tasks
+    },
+    telemetry: [...reading.telemetry, ...writing.telemetry, ...listening.telemetry, ...speaking.telemetry]
+  };
+}
+
+export function generateTodayBundle(
+  attempts: Attempt[],
+  dateKey: string,
+  variantSeed = dateKey
+): { bundle: TodayBundle; telemetry: TelemetryEvent[] } {
+  const profile = computeWeaknessProfile(attempts);
+  const comprehension = generateTaskVariant({
+    section: "reading",
+    attempts,
+    seedKey: `${variantSeed}-today-reading`
   });
   const grammar = generateTaskVariant({
     section: "grammar",
     attempts,
-    seedKey: `${dateKey}-grammar`,
+    seedKey: `${variantSeed}-today-grammar`,
     preferredSkill: pickGrammarFocus(profile)
   });
   const productive = generateTaskVariant({
-    section: productiveSection,
+    section: "writing",
     attempts,
-    seedKey: `${dateKey}-prod`
+    seedKey: `${variantSeed}-today-writing`
   });
 
   return {
@@ -819,21 +1294,22 @@ export function generateTodayBundle(attempts: Attempt[], dateKey: string): {
   };
 }
 
-export function generateMockExam(attempts: Attempt[], dateKey: string): {
-  session: MockExamSession;
-  telemetry: TelemetryEvent[];
-} {
+export function generateMockExam(
+  attempts: Attempt[],
+  dateKey: string,
+  variantSeed = dateKey
+): { session: MockExamSession; telemetry: TelemetryEvent[] } {
   const sessionTasks = officialSections.map((section, index) =>
     generateTaskVariant({
       section,
       attempts,
-      seedKey: `${dateKey}-mock-${section}-${index}`
+      seedKey: `${variantSeed}-mock-${section}-${index}`
     })
   );
 
   return {
     session: {
-      id: createId("mock", dateKey),
+      id: createId("mock", `${dateKey}-${variantSeed}`),
       dateKey,
       tasks: sessionTasks.map((entry) => entry.task)
     },
@@ -846,9 +1322,7 @@ export function scoreObjectiveTask(task: TaskVariant, answers: Record<string, nu
     throw new Error("Objective scoring is only supported for listening, reading and grammar tasks.");
   }
 
-  const questions =
-    task.section === "grammar" ? task.content.items : task.content.questions;
-
+  const questions = task.section === "grammar" ? task.content.items : task.content.questions;
   const total = questions.length;
   let correct = 0;
   const mistakeTags: string[] = [];
@@ -881,35 +1355,34 @@ export function scoreObjectiveTask(task: TaskVariant, answers: Record<string, nu
 
 export function buildStudyPlan(attempts: Attempt[], bundle: TodayBundle): StudyPlan {
   const profile = computeWeaknessProfile(attempts);
-  const primarySection = sectionMeta[profile.focusSection];
   const topMistake = profile.recurringMistakes[0];
 
   return {
-    headline: `${primarySection.label} en priorité aujourd'hui`,
+    headline: "Lecture et écriture en priorité aujourd'hui",
     recap: topMistake
-      ? `Ton signal le plus coûteux reste "${topMistake.tag}". On garde un travail court mais ciblé pour faire monter la stabilité.`
-      : "On installe une cadence régulière : compréhension, réparation grammaticale, puis production guidée.",
+      ? `Ton signal le plus coûteux reste "${topMistake.tag}". On garde donc une lecture DELF ciblée, une réparation grammaticale utile et une production écrite structurée.`
+      : "On privilégie aujourd'hui la compréhension écrite, la correction utile et une production écrite ambitieuse.",
     tasks: [
       {
         section: bundle.comprehension.section,
         title: bundle.comprehension.title,
-        reason: "Renforcer un point officiel du DELF B2 sans répéter exactement le même exercice."
+        reason: "Travailler les types de questions les plus probables : thèse, ton, preuve et recommandation."
       },
       {
         section: bundle.grammar.section,
         title: bundle.grammar.title,
-        reason: "Réparer la structure la plus rentable à court terme."
+        reason: "Stabiliser les connecteurs et les nuances qui font monter la note."
       },
       {
         section: bundle.productive.section,
         title: bundle.productive.title,
-        reason: "Transformer les idées en argumentation notée comme un coach d'examen."
+        reason: "Ancrer une copie argumentative proche d'un niveau très solide."
       }
     ],
     nextMock:
       attempts.length < 6
-        ? "Après deux autres séances, lance un mock de section pour mesurer la stabilité."
-        : "Planifie un mock complet cette semaine pour vérifier endurance et gestion du temps."
+        ? "Après deux autres séances, lance un mini-mock écrit pour mesurer la stabilité."
+        : "Cette semaine, fais un mock complet pour vérifier l'endurance et la gestion du temps."
   };
 }
 

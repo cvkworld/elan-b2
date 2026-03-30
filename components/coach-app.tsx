@@ -1,23 +1,16 @@
 "use client";
 
-import {
-  startTransition,
-  useDeferredValue,
-  useEffect,
-  useMemo,
-  useState
-} from "react";
-import {
-  sectionMeta,
-  skillNodes,
-  supplementalResources
-} from "@/lib/delf-data";
+import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { SpeakingRecorder } from "@/components/speaking-recorder";
+import { supplementalResources, sectionMeta } from "@/lib/delf-data";
 import { evaluateProduction } from "@/lib/feedback";
 import {
   buildStudyPlan,
   computeWeaknessProfile,
   createAttempt,
   generateMockExam,
+  generateSectionPractice,
+  generateSectionPracticePack,
   generateTaskVariant,
   generateTodayBundle,
   scoreObjectiveTask
@@ -26,18 +19,30 @@ import { loadStoredCoachState, saveStoredCoachState } from "@/lib/storage";
 import {
   Attempt,
   ExamSection,
+  SectionPracticePacks,
   StoredCoachState,
   TaskVariant,
   TelemetryEvent
 } from "@/lib/types";
-import { SpeakingRecorder } from "@/components/speaking-recorder";
 
-type TabId = "today" | "path" | "mock" | "review" | "progress";
+type TabId =
+  | "today"
+  | "reading"
+  | "writing"
+  | "listening"
+  | "speaking"
+  | "mock"
+  | "review"
+  | "progress";
 type TodaySlot = "comprehension" | "grammar" | "productive";
+type PracticeSection = Extract<ExamSection, "reading" | "writing" | "listening" | "speaking">;
 
 const tabs: Array<{ id: TabId; label: string; description: string }> = [
-  { id: "today", label: "Today", description: "Séance courte et ciblée" },
-  { id: "path", label: "Path", description: "Compétences DELF B2" },
+  { id: "today", label: "Aujourd'hui", description: "Session courte et ciblée" },
+  { id: "reading", label: "Compréhension écrite", description: "Textes DELF B2 renouvelés" },
+  { id: "writing", label: "Production écrite", description: "Sujets + modèles haut niveau" },
+  { id: "listening", label: "Compréhension orale", description: "Écoute guidée" },
+  { id: "speaking", label: "Production orale", description: "Monologue et interaction" },
   { id: "mock", label: "Mock Exam", description: "Simulation chronométrée" },
   { id: "review", label: "Review", description: "Erreurs par motif" },
   { id: "progress", label: "Progress", description: "Readiness et tendances" }
@@ -48,7 +53,7 @@ function getDateKey() {
 }
 
 function trimTelemetry(events: TelemetryEvent[]) {
-  const trimmed = events.slice(-90);
+  const trimmed = events.slice(-120);
   const counts = new Map<string, number>();
 
   return trimmed.map((event) => {
@@ -66,37 +71,80 @@ function trimTelemetry(events: TelemetryEvent[]) {
   });
 }
 
-function buildStateFromAttempts(attempts: Attempt[]): StoredCoachState {
+function hasSectionPractice(value: unknown): value is SectionPracticePacks {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return ["listening", "reading", "writing", "speaking"].every((section) =>
+    Array.isArray(record[section])
+  );
+}
+
+function buildStateFromAttempts(attempts: Attempt[], variantSeed = getDateKey()): StoredCoachState {
   const dateKey = getDateKey();
-  const today = generateTodayBundle(attempts, dateKey);
-  const mock = generateMockExam(attempts, dateKey);
+  const today = generateTodayBundle(attempts, dateKey, `${variantSeed}-today`);
+  const mock = generateMockExam(attempts, dateKey, `${variantSeed}-mock`);
+  const practice = generateSectionPractice(attempts, dateKey, `${variantSeed}-practice`);
 
   return {
-    version: 1,
+    version: 2,
     attempts,
-    telemetry: trimTelemetry([...today.telemetry, ...mock.telemetry]),
+    telemetry: trimTelemetry([...today.telemetry, ...mock.telemetry, ...practice.telemetry]),
     todayBundle: today.bundle,
-    mockExam: mock.session
+    mockExam: mock.session,
+    sectionPractice: practice.packs
   };
+}
+
+function normalizeStoredState(raw: unknown): StoredCoachState | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+
+  const candidate = raw as Partial<StoredCoachState> & { attempts?: Attempt[] };
+  if (!Array.isArray(candidate.attempts)) {
+    return null;
+  }
+
+  const dateKey = getDateKey();
+  if (
+    candidate.todayBundle?.dateKey === dateKey &&
+    candidate.mockExam?.dateKey === dateKey &&
+    hasSectionPractice(candidate.sectionPractice)
+  ) {
+    return {
+      version: 2,
+      attempts: candidate.attempts,
+      telemetry: trimTelemetry(candidate.telemetry ?? []),
+      todayBundle: candidate.todayBundle,
+      mockExam: candidate.mockExam,
+      sectionPractice: candidate.sectionPractice
+    };
+  }
+
+  return buildStateFromAttempts(candidate.attempts);
 }
 
 function syncStateDate(state: StoredCoachState): StoredCoachState {
   const dateKey = getDateKey();
-  if (state.todayBundle.dateKey === dateKey && state.mockExam.dateKey === dateKey) {
+  if (
+    state.todayBundle.dateKey === dateKey &&
+    state.mockExam.dateKey === dateKey &&
+    hasSectionPractice(state.sectionPractice)
+  ) {
     return {
       ...state,
+      version: 2,
       telemetry: trimTelemetry(state.telemetry)
     };
   }
 
-  const today = generateTodayBundle(state.attempts, dateKey);
-  const mock = generateMockExam(state.attempts, dateKey);
-
+  const rebuilt = buildStateFromAttempts(state.attempts);
   return {
-    ...state,
-    telemetry: trimTelemetry([...state.telemetry, ...today.telemetry, ...mock.telemetry]),
-    todayBundle: today.bundle,
-    mockExam: mock.session
+    ...rebuilt,
+    telemetry: trimTelemetry([...state.telemetry, ...rebuilt.telemetry])
   };
 }
 
@@ -128,6 +176,35 @@ function sectionReadinessTone(score: number) {
   return "fragile";
 }
 
+function tabToSection(tab: TabId): PracticeSection | null {
+  if (tab === "reading" || tab === "writing" || tab === "listening" || tab === "speaking") {
+    return tab;
+  }
+  return null;
+}
+
+const readingSignals = [
+  "Question probable : thèse centrale ou intention de l'auteur.",
+  "Question probable : ton, posture, prudence ou concession.",
+  "Question probable : rôle d'un exemple ou d'un détail cité.",
+  "Question probable : recommandation finale ou compromis.",
+  "Question probable : mot-clé, titre ou synthèse fidèle."
+];
+
+const writingSignals = [
+  "Copie forte : position visible dans l'introduction.",
+  "Copie forte : deux arguments différents et illustrés.",
+  "Copie forte : concession réelle, puis réponse nuancée.",
+  "Copie forte : conclusion qui propose une action crédible.",
+  "Copie forte : registre stable, connecteurs utiles, pas de remplissage."
+];
+
+const oralSignals = [
+  "Commencer par reformuler le thème et annoncer ta priorité.",
+  "Prévoir un exemple concret et une objection possible.",
+  "Utiliser une concession courte, puis revenir à ton critère central."
+];
+
 export function CoachApp() {
   const [state, setState] = useState<StoredCoachState>(() => buildStateFromAttempts([]));
   const [activeTab, setActiveTab] = useState<TabId>("today");
@@ -141,8 +218,9 @@ export function CoachApp() {
   useEffect(() => {
     const stored = loadStoredCoachState();
     const frame = window.requestAnimationFrame(() => {
-      if (stored) {
-        setState(syncStateDate(stored));
+      const normalized = normalizeStoredState(stored);
+      if (normalized) {
+        setState(normalized);
       }
       setHydrated(true);
     });
@@ -221,11 +299,73 @@ export function CoachApp() {
   }, [deferredReviewFilter, state.attempts]);
 
   const studyDays = useMemo(() => {
-    const dates = new Set(
-      state.attempts.map((attempt) => attempt.timestamp.slice(0, 10))
-    );
+    const dates = new Set(state.attempts.map((attempt) => attempt.timestamp.slice(0, 10)));
     return dates.size;
   }, [state.attempts]);
+
+  const heroCopy = useMemo(() => {
+    if (activeTab === "today") {
+      return {
+        eyebrow: "Plan du jour",
+        title: studyPlan.headline,
+        text: studyPlan.recap
+      };
+    }
+
+    if (activeTab === "reading") {
+      return {
+        eyebrow: "Compréhension écrite",
+        title: "Lire comme au DELF B2, pas comme un quiz figé",
+        text: "Trois textes réalistes, des questions commentées et des formats qui changent vraiment à chaque génération."
+      };
+    }
+
+    if (activeTab === "writing") {
+      return {
+        eyebrow: "Production écrite",
+        title: "Écrire une copie ambitieuse, structurée et crédible",
+        text: "On vise ici une vraie méthode de copie : thèse claire, arguments utiles, concession et conclusion solide."
+      };
+    }
+
+    if (activeTab === "listening") {
+      return {
+        eyebrow: "Compréhension orale",
+        title: "Mieux écouter les indices qui font la différence",
+        text: "Le travail oral reste présent, mais la priorité actuelle reste la lecture et l'écriture."
+      };
+    }
+
+    if (activeTab === "speaking") {
+      return {
+        eyebrow: "Production orale",
+        title: "Préparer des réponses défendables sous relance",
+        text: "Monologue, interaction et concessions courtes pour garder une position stable."
+      };
+    }
+
+    if (activeTab === "mock") {
+      return {
+        eyebrow: "Mock exam",
+        title: "Simuler l'examen complet avec contenu renouvelé",
+        text: "Chrono, quatre épreuves et nouvelles variantes au lieu des mêmes questions répétées."
+      };
+    }
+
+    if (activeTab === "review") {
+      return {
+        eyebrow: "Review",
+        title: "Comprendre tes erreurs avant d'en créer de nouvelles",
+        text: "On suit ici les motifs qui reviennent et les sections qui demandent encore de la stabilité."
+      };
+    }
+
+    return {
+      eyebrow: "Progress",
+      title: "Suivre ta progression par section et par catégorie",
+      text: "Readiness globale, rubrics productives et couverture des grands thèmes B2."
+    };
+  }, [activeTab, studyPlan.headline, studyPlan.recap]);
 
   function updateObjectiveAnswer(taskId: string, questionId: string, choiceIndex: number) {
     setObjectiveAnswers((current) => ({
@@ -256,6 +396,25 @@ export function CoachApp() {
     window.speechSynthesis.speak(utterance);
   }
 
+  function recomposeToday() {
+    startTransition(() => {
+      setState((current) => {
+        const synced = syncStateDate(current);
+        const seed = `${getDateKey()}-${Date.now()}`;
+        const today = generateTodayBundle(synced.attempts, getDateKey(), `${seed}-today`);
+        const practice = generateSectionPractice(synced.attempts, getDateKey(), `${seed}-practice`);
+        return pushTelemetry(
+          {
+            ...synced,
+            todayBundle: today.bundle,
+            sectionPractice: practice.packs
+          },
+          [...today.telemetry, ...practice.telemetry]
+        );
+      });
+    });
+  }
+
   function replaceTodaySlot(slot: TodaySlot) {
     startTransition(() => {
       setState((current) => {
@@ -264,7 +423,7 @@ export function CoachApp() {
         const generated = generateTaskVariant({
           section: currentTask.section,
           attempts: synced.attempts,
-          seedKey: `${synced.todayBundle.dateKey}-${slot}-${Date.now()}`,
+          seedKey: `${getDateKey()}-${slot}-${Date.now()}`,
           preferredSkill: currentTask.section === "grammar" ? profile.focusSkills[0] : undefined
         });
         return pushTelemetry(
@@ -285,11 +444,37 @@ export function CoachApp() {
     startTransition(() => {
       setState((current) => {
         const synced = syncStateDate(current);
-        const generated = generateMockExam(synced.attempts, `${getDateKey()}-${Date.now()}`);
+        const generated = generateMockExam(synced.attempts, getDateKey(), `${getDateKey()}-${Date.now()}`);
         return pushTelemetry(
           {
             ...synced,
             mockExam: generated.session
+          },
+          generated.telemetry
+        );
+      });
+    });
+  }
+
+  function regeneratePracticeSection(section: PracticeSection) {
+    startTransition(() => {
+      setState((current) => {
+        const synced = syncStateDate(current);
+        const generated = generateSectionPracticePack({
+          section,
+          attempts: synced.attempts,
+          dateKey: getDateKey(),
+          variantSeed: `${getDateKey()}-${section}-${Date.now()}`,
+          count: synced.sectionPractice[section].length || (section === "reading" || section === "writing" ? 3 : 2)
+        });
+
+        return pushTelemetry(
+          {
+            ...synced,
+            sectionPractice: {
+              ...synced.sectionPractice,
+              [section]: generated.tasks
+            }
           },
           generated.telemetry
         );
@@ -404,6 +589,39 @@ export function CoachApp() {
     );
   }
 
+  function renderCorrectionKey(task: TaskVariant, attempt?: Attempt) {
+    if (!attempt || (task.section !== "reading" && task.section !== "listening" && task.section !== "grammar")) {
+      return null;
+    }
+
+    const items = task.section === "grammar" ? task.content.items : task.content.questions;
+
+    return (
+      <div className="feedback-card">
+        <div className="feedback-head">
+          <div>
+            <p className="eyebrow">Corrigé commenté</p>
+            <h4>Réponses modèles et logique attendue</h4>
+          </div>
+          <span className="pill">Après correction</span>
+        </div>
+        <div className="questions">
+          {items.map((item, index) => (
+            <div className="question-block" key={`${task.id}-answer-${index}`}>
+              <p>
+                <strong>{index + 1}.</strong> {item.prompt}
+              </p>
+              <p className="muted">
+                Réponse attendue : <strong>{item.choices[item.correctIndex]}</strong>
+              </p>
+              <p className="notice">{item.explanation}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   function renderObjectiveTask(task: TaskVariant, slot?: TodaySlot) {
     if (task.section !== "listening" && task.section !== "reading" && task.section !== "grammar") {
       return null;
@@ -411,8 +629,7 @@ export function CoachApp() {
 
     const latestAttempt = latestAttemptForTask(state.attempts, task.id);
     const answers = objectiveAnswers[task.id] ?? {};
-    const questions =
-      task.section === "grammar" ? task.content.items : task.content.questions;
+    const questions = task.section === "grammar" ? task.content.items : task.content.questions;
 
     return (
       <section className="task-card" key={task.id}>
@@ -449,8 +666,8 @@ export function CoachApp() {
             </div>
             <p className="notice">{task.content.notePrompt}</p>
             <ul className="hint-list">
-              {task.content.bullets.map((bullet) => (
-                <li key={bullet}>{bullet}</li>
+              {task.content.bullets.map((bullet, index) => (
+                <li key={`${task.id}-bullet-${index}`}>{bullet}</li>
               ))}
             </ul>
             {transcriptVisible[task.id] ? <p className="transcript">{task.content.transcript}</p> : null}
@@ -459,13 +676,22 @@ export function CoachApp() {
 
         {task.section === "reading" ? (
           <div className="stimulus">
+            <div className="tag-row">
+              <span className="pill">{task.content.formatLabel}</span>
+              <span className="pill">{task.content.examFocus}</span>
+            </div>
             <p className="eyebrow">{task.content.kicker}</p>
             <h4>{task.content.headline}</h4>
-            {task.content.passage.map((paragraph) => (
-              <p key={paragraph} className="reading-paragraph">
+            {task.content.passage.map((paragraph, index) => (
+              <p key={`${task.id}-paragraph-${index}`} className="reading-paragraph">
                 {paragraph}
               </p>
             ))}
+            <ul className="hint-list">
+              {task.content.strategy.map((item, index) => (
+                <li key={`${task.id}-strategy-${index}`}>{item}</li>
+              ))}
+            </ul>
           </div>
         ) : null}
 
@@ -473,9 +699,7 @@ export function CoachApp() {
           <div className="stimulus">
             <p className="eyebrow">Focus</p>
             <h4>{task.content.focus}</h4>
-            <p className="muted">
-              On vise les structures les plus rentables pour stabiliser ta production.
-            </p>
+            <p className="muted">On vise les structures les plus rentables pour stabiliser ta production.</p>
           </div>
         ) : null}
 
@@ -514,6 +738,7 @@ export function CoachApp() {
         </div>
 
         {renderAttemptFeedback(latestAttempt)}
+        {renderCorrectionKey(task, latestAttempt)}
       </section>
     );
   }
@@ -541,39 +766,81 @@ export function CoachApp() {
         </div>
 
         <div className="stimulus">
+          <div className="tag-row">
+            {task.section === "writing" ? (
+              <>
+                <span className="pill">{task.content.formatLabel}</span>
+                <span className="pill">{task.content.examFocus}</span>
+              </>
+            ) : null}
+          </div>
           <h4>Consigne</h4>
           <p className="reading-paragraph">{task.content.brief}</p>
           <div className="two-col">
             <div>
               <p className="eyebrow">Checklist</p>
               <ul className="hint-list">
-                {(task.section === "writing" ? task.content.checklist : task.content.prep).map((item) => (
-                  <li key={item}>{item}</li>
+                {(task.section === "writing" ? task.content.checklist : task.content.prep).map((item, index) => (
+                  <li key={`${task.id}-prep-${index}`}>{item}</li>
                 ))}
               </ul>
             </div>
             <div>
               <p className="eyebrow">Model moves</p>
               <ul className="hint-list">
-                {task.content.modelMoves.map((item) => (
-                  <li key={item}>{item}</li>
+                {task.content.modelMoves.map((item, index) => (
+                  <li key={`${task.id}-move-${index}`}>{item}</li>
                 ))}
               </ul>
             </div>
           </div>
 
           {task.section === "writing" ? (
-            <ul className="hint-list">
-              {task.content.constraints.map((constraint) => (
-                <li key={constraint}>{constraint}</li>
-              ))}
-            </ul>
+            <>
+              <ul className="hint-list">
+                {task.content.constraints.map((constraint, index) => (
+                  <li key={`${task.id}-constraint-${index}`}>{constraint}</li>
+                ))}
+              </ul>
+              <div className="feedback-card">
+                <div className="feedback-head">
+                  <div>
+                    <p className="eyebrow">Modèle haut niveau</p>
+                    <h4>{task.content.modelAnswer.title}</h4>
+                  </div>
+                  <span className="pill">Objectif 25/25</span>
+                </div>
+                <div className="two-col">
+                  <div>
+                    <p className="eyebrow">Plan conseillé</p>
+                    <ul className="hint-list">
+                      {task.content.outline.map((item, index) => (
+                        <li key={`${task.id}-outline-${index}`}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <p className="eyebrow">Pourquoi ce modèle marque</p>
+                    <ul className="hint-list">
+                      {task.content.modelAnswer.whyItScores.map((item, index) => (
+                        <li key={`${task.id}-score-${index}`}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+                {task.content.modelAnswer.paragraphs.map((paragraph, index) => (
+                  <p className="reading-paragraph" key={`${task.id}-model-${index}`}>
+                    {paragraph}
+                  </p>
+                ))}
+              </div>
+            </>
           ) : (
             <>
               <p className="notice">{task.content.interactionCue}</p>
               <ul className="hint-list">
-                {task.content.followUps.map((item) => (
-                  <li key={item}>{item}</li>
+                {task.content.followUps.map((item, index) => (
+                  <li key={`${task.id}-follow-${index}`}>{item}</li>
                 ))}
               </ul>
               <SpeakingRecorder taskId={task.id} />
@@ -583,9 +850,7 @@ export function CoachApp() {
 
         <div className="draft-area">
           <div className="draft-head">
-            <p className="eyebrow">
-              {task.section === "writing" ? "Rédaction" : "Transcript ou notes structurées"}
-            </p>
+            <p className="eyebrow">{task.section === "writing" ? "Rédaction" : "Transcript ou notes structurées"}</p>
             <span className="muted">{draft.trim().split(/\s+/).filter(Boolean).length} mots</span>
           </div>
           <textarea
@@ -635,33 +900,63 @@ export function CoachApp() {
               <div>
                 <p className="eyebrow">Forces</p>
                 <ul className="hint-list">
-                  {latestAttempt.feedback.strengths.map((strength) => (
-                    <li key={strength}>{strength}</li>
+                  {latestAttempt.feedback.strengths.map((strength, index) => (
+                    <li key={`${task.id}-strength-${index}`}>{strength}</li>
                   ))}
                 </ul>
               </div>
               <div>
                 <p className="eyebrow">Priorités</p>
                 <ul className="hint-list">
-                  {latestAttempt.feedback.priorities.map((priority) => (
-                    <li key={priority}>{priority}</li>
+                  {latestAttempt.feedback.priorities.map((priority, index) => (
+                    <li key={`${task.id}-priority-${index}`}>{priority}</li>
                   ))}
                 </ul>
               </div>
             </div>
-            {latestAttempt.feedback.caution ? (
-              <p className="notice">{latestAttempt.feedback.caution}</p>
-            ) : null}
+            {latestAttempt.feedback.caution ? <p className="notice">{latestAttempt.feedback.caution}</p> : null}
           </div>
         ) : null}
       </section>
     );
   }
 
-  const topicSnapshots =
-    Object.keys(profile.topicScores).length > 0
-      ? Object.entries(profile.topicScores)
-      : supplementalResources.map((resource) => [resource.label, 50]);
+  function renderSectionPanel(section: PracticeSection) {
+    const tasks = state.sectionPractice[section];
+    const signals = section === "reading" ? readingSignals : section === "writing" ? writingSignals : oralSignals;
+
+    return (
+      <div className="panel-stack">
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">{sectionMeta[section].label}</p>
+              <h3>{section === "reading" ? "Entraînement renouvelé" : "Entraînement ciblé"}</h3>
+            </div>
+            <button className="button" onClick={() => regeneratePracticeSection(section)} type="button">
+              Générer {section === "reading" || section === "writing" ? "de nouveaux sujets" : "de nouvelles variantes"}
+            </button>
+          </div>
+          <div className="study-plan-grid">
+            {signals.map((signal, index) => (
+              <article className="plan-chip" key={`${section}-signal-${index}`}>
+                <strong>{signal}</strong>
+                <span>{sectionMeta[section].description}</span>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        {tasks.map((task) =>
+          task.section === "reading" || task.section === "listening"
+            ? renderObjectiveTask(task)
+            : renderProductiveTask(task)
+        )}
+      </div>
+    );
+  }
+
+  const topicSnapshots = Object.keys(profile.topicScores).length > 0 ? Object.entries(profile.topicScores) : [];
 
   return (
     <div className="coach-shell">
@@ -669,10 +964,7 @@ export function CoachApp() {
         <div className="brand-block">
           <p className="eyebrow">Personal DELF coach</p>
           <h1>Élan B2</h1>
-          <p className="muted">
-            App mobile-first pour préparer les quatre épreuves, avec génération contrôlée
-            et feedback de coach.
-          </p>
+          <p className="muted">Lecture, écriture, écoute et oral avec génération plus utile et moins répétitive.</p>
         </div>
 
         <div className="readiness-card">
@@ -697,32 +989,22 @@ export function CoachApp() {
 
         <div className="rail-footer">
           <p className="eyebrow">Legal note</p>
-          <p className="muted">
-            Contenu original seulement. Les liens RFI et TV5MONDE restent externes.
-          </p>
+          <p className="muted">Contenu original seulement. Les liens RFI et TV5MONDE restent externes.</p>
         </div>
       </aside>
 
       <main className="coach-stage">
         <header className="hero-panel">
           <div>
-            <p className="eyebrow">Plan du jour</p>
-            <h2>{studyPlan.headline}</h2>
-            <p className="muted">{studyPlan.recap}</p>
+            <p className="eyebrow">{heroCopy.eyebrow}</p>
+            <h2>{heroCopy.title}</h2>
+            <p className="muted">{heroCopy.text}</p>
           </div>
           <div className="hero-actions">
             <button className="button button-secondary" onClick={() => setActiveTab("mock")} type="button">
               Aller au mock
             </button>
-            <button
-              className="button button-ghost"
-              onClick={() =>
-                startTransition(() => {
-                  setState((current) => buildStateFromAttempts(current.attempts));
-                })
-              }
-              type="button"
-            >
+            <button className="button button-ghost" onClick={recomposeToday} type="button">
               Recomposer aujourd&apos;hui
             </button>
           </div>
@@ -733,16 +1015,14 @@ export function CoachApp() {
             <section className="panel">
               <div className="panel-head">
                 <div>
-                  <p className="eyebrow">Today</p>
+                  <p className="eyebrow">Aujourd&apos;hui</p>
                   <h3>Séance de 10 à 20 minutes</h3>
                 </div>
-                <p className="muted">
-                  Compréhension, réparation grammaticale, puis production coachée.
-                </p>
+                <p className="muted">Lecture DELF, réparation grammaticale, puis production écrite coachée.</p>
               </div>
               <div className="study-plan-grid">
-                {studyPlan.tasks.map((item) => (
-                  <article className="plan-chip" key={`${item.section}-${item.title}`}>
+                {studyPlan.tasks.map((item, index) => (
+                  <article className="plan-chip" key={`${item.section}-${index}`}>
                     <strong>{item.title}</strong>
                     <span>{item.reason}</span>
                   </article>
@@ -756,43 +1036,7 @@ export function CoachApp() {
           </div>
         ) : null}
 
-        {activeTab === "path" ? (
-          <div className="panel-stack">
-            <section className="panel">
-              <div className="panel-head">
-                <div>
-                  <p className="eyebrow">Path</p>
-                  <h3>Compétences DELF B2</h3>
-                </div>
-                <p className="muted">
-                  La progression n&apos;est pas organisée par niveau CECRL général, mais par gestes d&apos;examen.
-                </p>
-              </div>
-              <div className="skill-grid">
-                {skillNodes.map((node) => {
-                  const readiness = profile.skillScores[node.id];
-                  return (
-                    <article className="skill-card" key={node.id}>
-                      <div className="skill-head">
-                        <span className="pill">{sectionMeta[node.section].label}</span>
-                        <strong>{readiness}</strong>
-                      </div>
-                      <h4>{node.label}</h4>
-                      <p className="muted">{node.description}</p>
-                      <div className="progress-track">
-                        <div
-                          className={`progress-fill tone-${sectionReadinessTone(readiness)}`}
-                          style={{ width: `${readiness}%` }}
-                        />
-                      </div>
-                      <p className="notice">{node.milestone}</p>
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-          </div>
-        ) : null}
+        {tabToSection(activeTab) ? renderSectionPanel(tabToSection(activeTab) as PracticeSection) : null}
 
         {activeTab === "mock" ? (
           <div className="panel-stack">
@@ -800,15 +1044,15 @@ export function CoachApp() {
               <div className="panel-head">
                 <div>
                   <p className="eyebrow">Mock Exam</p>
-                  <h3>Simulation complète ou par section</h3>
+                  <h3>Simulation complète</h3>
                 </div>
                 <button className="button" onClick={regenerateMock} type="button">
                   Générer un nouveau mock
                 </button>
               </div>
               <div className="study-plan-grid">
-                {state.mockExam.tasks.map((task) => (
-                  <article className="plan-chip" key={task.id}>
+                {state.mockExam.tasks.map((task, index) => (
+                  <article className="plan-chip" key={`${task.id}-${index}`}>
                     <strong>{sectionMeta[task.section].label}</strong>
                     <span>{sectionMeta[task.section].duration}</span>
                   </article>
@@ -842,7 +1086,7 @@ export function CoachApp() {
               <div className="mistake-grid">
                 {profile.recurringMistakes.length > 0 ? (
                   profile.recurringMistakes.map((mistake) => (
-                    <article className="mistake-card" key={mistake.tag}>
+                    <article className="mistake-card" key={`${mistake.section}-${mistake.tag}`}>
                       <strong>{humanizeTag(mistake.tag)}</strong>
                       <span>{mistake.count} fois</span>
                       <small>{sectionMeta[mistake.section].label}</small>
@@ -874,15 +1118,13 @@ export function CoachApp() {
                             <p className="eyebrow">{sectionMeta[attempt.section].label}</p>
                             <h4>{attempt.topicLabel}</h4>
                           </div>
-                          <span className={`score-badge score-${sectionReadinessTone(attempt.score)}`}>
-                            {attempt.score}
-                          </span>
+                          <span className={`score-badge score-${sectionReadinessTone(attempt.score)}`}>{attempt.score}</span>
                         </div>
                         <p>{attempt.responseSummary}</p>
                         {visibleTags.length > 0 ? (
                           <div className="tag-row">
-                            {visibleTags.map((tag) => (
-                              <span className="pill" key={`${attempt.id}-${tag}`}>
+                            {visibleTags.map((tag, index) => (
+                              <span className="pill" key={`${attempt.id}-${index}`}>
                                 {humanizeTag(tag)}
                               </span>
                             ))}
@@ -935,10 +1177,7 @@ export function CoachApp() {
                         <span>{score}</span>
                       </div>
                       <div className="progress-track">
-                        <div
-                          className={`progress-fill tone-${sectionReadinessTone(score)}`}
-                          style={{ width: `${score}%` }}
-                        />
+                        <div className={`progress-fill tone-${sectionReadinessTone(score)}`} style={{ width: `${score}%` }} />
                       </div>
                     </div>
                   );
@@ -963,10 +1202,7 @@ export function CoachApp() {
                       </div>
                       <h4>{item.label}</h4>
                       <div className="progress-track">
-                        <div
-                          className={`progress-fill tone-${sectionReadinessTone(item.value)}`}
-                          style={{ width: `${item.value}%` }}
-                        />
+                        <div className={`progress-fill tone-${sectionReadinessTone(item.value)}`} style={{ width: `${item.value}%` }} />
                       </div>
                     </article>
                   ))
@@ -984,11 +1220,15 @@ export function CoachApp() {
                 </div>
               </div>
               <div className="tag-row">
-                {topicSnapshots.map(([topic, score]) => (
-                  <span className="pill" key={topic}>
-                    {topic} · {score}
-                  </span>
-                ))}
+                {topicSnapshots.length > 0 ? (
+                  topicSnapshots.map(([topic, score]) => (
+                    <span className="pill" key={topic}>
+                      {topic} · {score}
+                    </span>
+                  ))
+                ) : (
+                  <span className="pill">Les thèmes apparaîtront après plusieurs séances.</span>
+                )}
               </div>
             </section>
 
@@ -1000,17 +1240,20 @@ export function CoachApp() {
                 </div>
               </div>
               <div className="attempt-list">
-                {state.telemetry.slice().reverse().map((event) => (
-                  <article className="attempt-card" key={event.id}>
-                    <div className="attempt-head">
-                      <div>
-                        <p className="eyebrow">{event.type}</p>
-                        <h4>{event.message}</h4>
+                {state.telemetry
+                  .slice()
+                  .reverse()
+                  .map((event) => (
+                    <article className="attempt-card" key={event.id}>
+                      <div className="attempt-head">
+                        <div>
+                          <p className="eyebrow">{event.type}</p>
+                          <h4>{event.message}</h4>
+                        </div>
                       </div>
-                    </div>
-                    <p>{event.context}</p>
-                  </article>
-                ))}
+                      <p>{event.context}</p>
+                    </article>
+                  ))}
               </div>
             </section>
           </div>

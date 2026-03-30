@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { evaluateProduction } from "@/lib/feedback";
 import {
+  generateSectionPracticePack,
   generateTaskVariant,
+  generateTodayBundle,
   scoreObjectiveTask
 } from "@/lib/generator";
 import { Attempt } from "@/lib/types";
@@ -61,6 +63,28 @@ describe("generator", () => {
 
     expect(rerolled.task.fingerprint).not.toBe(first.task.fingerprint);
     expect(rerolled.telemetry.some((event) => event.type === "collision")).toBe(true);
+  });
+
+  it("builds unique reading practice packs", () => {
+    const result = generateSectionPracticePack({
+      section: "reading",
+      attempts: [],
+      dateKey: "2026-03-30",
+      variantSeed: "reading-pack",
+      count: 3
+    });
+
+    expect(result.tasks).toHaveLength(3);
+    expect(new Set(result.tasks.map((task) => task.fingerprint)).size).toBe(3);
+    expect(result.tasks.every((task) => task.section === "reading")).toBe(true);
+  });
+
+  it("keeps today's bundle centered on reading, grammar and writing", () => {
+    const result = generateTodayBundle([], "2026-03-30", "today-pack");
+
+    expect(result.bundle.comprehension.section).toBe("reading");
+    expect(result.bundle.grammar.section).toBe("grammar");
+    expect(result.bundle.productive.section).toBe("writing");
   });
 
   it("scores objective tasks deterministically", () => {

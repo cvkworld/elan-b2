@@ -1,40 +1,35 @@
-import {
-  Rubric,
-  SkillNode,
-  TaskTemplate,
-  TopicSeed,
-} from "@/lib/types";
+import { Rubric, SkillNode, TaskTemplate, TopicSeed } from "@/lib/types";
 
 export const sectionMeta = {
   listening: {
     label: "Compréhension orale",
     duration: "30 min",
     accent: "#f47b4a",
-    description: "2 exercices, annonces, entretiens, émissions ou débats."
+    description: "Deux exercices à partir d'annonces, d'entretiens, d'émissions ou de débats."
   },
   reading: {
     label: "Compréhension écrite",
     duration: "1 h",
     accent: "#3c8f77",
-    description: "2 exercices pour lire vite, repérer le point de vue et relier les preuves."
+    description: "Lire vite, repérer la thèse, la nuance, le ton et la preuve pertinente."
   },
   writing: {
     label: "Production écrite",
     duration: "1 h",
     accent: "#d3a625",
-    description: "1 texte argumentatif de 250 mots minimum."
+    description: "Un texte argumentatif de 250 mots minimum, structuré et nuancé."
   },
   speaking: {
     label: "Production orale",
     duration: "20 min + 30 min de préparation",
     accent: "#6a6ff2",
-    description: "Monologue suivi puis interaction guidée."
+    description: "Monologue suivi puis interaction guidée autour d'une position défendue."
   },
   grammar: {
     label: "Réparation grammaticale",
     duration: "10 min",
     accent: "#5b4a3b",
-    description: "Drills ciblés à partir de tes erreurs récentes."
+    description: "Drills ciblés à partir des erreurs les plus rentables à corriger."
   }
 } as const;
 
@@ -100,7 +95,7 @@ export const speakingRubric: Rubric = {
     {
       id: "lexicon",
       label: "Lexique",
-      description: "Vocabulaire souple, assez précis pour défendre une opinion.",
+      description: "Vocabulaire souple et assez précis pour défendre une opinion.",
       weight: 0.18
     },
     {
@@ -170,6 +165,13 @@ export const skillNodes: SkillNode[] = [
     milestone: "Tu restes précis sans devenir scolaire ni familier."
   },
   {
+    id: "task-completion",
+    label: "Réponse complète",
+    description: "Couvrir toutes les attentes de la consigne.",
+    section: "writing",
+    milestone: "Tu réponds à toute la tâche sans digression."
+  },
+  {
     id: "opinion-defense",
     label: "Défendre une opinion",
     description: "Prendre position, nuancer et convaincre.",
@@ -217,13 +219,6 @@ export const skillNodes: SkillNode[] = [
     description: "Condensation utile pour un style B2 plus dense.",
     section: "grammar",
     milestone: "Tes phrases gagnent en densité sans perdre en clarté."
-  },
-  {
-    id: "task-completion",
-    label: "Réponse complète",
-    description: "Couvrir toutes les attentes de la consigne.",
-    section: "writing",
-    milestone: "Tu réponds à toute la tâche sans digression."
   }
 ];
 
@@ -379,6 +374,44 @@ export const topicSeeds: TopicSeed[] = [
     ],
     vocabulary: ["prévention", "rythme", "équilibre", "fatigue", "accompagnement", "stress"],
     frictionPoints: ["objectif ambitieux contre réalisme", "intimité contre soutien", "régularité contre urgence"]
+  },
+  {
+    id: "social-change",
+    label: "Transformations sociales",
+    domain: "social-change",
+    contexts: ["un dossier de magazine", "une rencontre citoyenne", "un forum d'université populaire"],
+    audiences: ["des jeunes adultes", "des habitants", "des responsables associatifs"],
+    claims: [
+      "Les changements durables s'installent mieux lorsqu'ils passent par des habitudes modestes mais régulières.",
+      "Une politique sociale convainc davantage quand elle rend visibles ses effets concrets sur la vie quotidienne.",
+      "Les nouvelles solidarités fonctionnent surtout lorsqu'elles donnent un rôle actif aux participants."
+    ],
+    counterpoints: [
+      "les changements progressifs peuvent sembler trop lents face à l'urgence",
+      "les effets concrets sont parfois difficiles à mesurer à court terme",
+      "certaines personnes souhaitent un accompagnement plus direct avant de s'engager"
+    ],
+    vocabulary: ["solidarité", "transition", "accompagnement", "quotidien", "impact", "engagement"],
+    frictionPoints: ["urgence contre patience", "visibilité contre complexité", "aide contre autonomie"]
+  },
+  {
+    id: "public-life",
+    label: "Vie publique et services",
+    domain: "public-life",
+    contexts: ["un service municipal", "un quotidien régional", "une consultation de quartier"],
+    audiences: ["des usagers", "des habitants", "des agents de terrain"],
+    claims: [
+      "Les services publics inspirent davantage confiance lorsque leurs priorités sont expliquées simplement.",
+      "La qualité d'un service se juge aussi à sa capacité d'écouter les retours des usagers.",
+      "Une décision locale est mieux acceptée lorsqu'elle associe information claire et possibilité d'ajustement."
+    ],
+    counterpoints: [
+      "une communication plus simple peut donner l'impression de masquer la complexité",
+      "l'écoute des usagers peut ralentir certaines décisions urgentes",
+      "toutes les demandes exprimées ne peuvent pas être satisfaites en même temps"
+    ],
+    vocabulary: ["service", "usager", "accueil", "concertation", "ajustement", "priorité"],
+    frictionPoints: ["clarté contre simplification", "écoute contre rapidité", "qualité contre contraintes"]
   }
 ];
 
@@ -440,6 +473,20 @@ export const taskTemplates: TaskTemplate[] = [
     variationFamilies: ["forum", "notice", "response"]
   },
   {
+    id: "read-analysis",
+    section: "reading",
+    label: "Analyse commentée",
+    format: "dossier bref ou chronique analytique",
+    allowedPromptShape: "Lire une analyse, repérer la recommandation et la logique argumentative.",
+    skillTags: ["tone-analysis", "evidence-matching", "detail-discrimination"],
+    distractorStrategy: "Confondre constat, exemple illustratif et recommandation finale.",
+    difficultyRange: [3, 5],
+    scoringMethod: "objective",
+    estimatedMinutes: 13,
+    cooldownFamily: "reading-analysis",
+    variationFamilies: ["analysis", "briefing", "chronicle"]
+  },
+  {
     id: "write-letter",
     section: "writing",
     label: "Lettre argumentée",
@@ -466,6 +513,20 @@ export const taskTemplates: TaskTemplate[] = [
     estimatedMinutes: 16,
     cooldownFamily: "writing-forum",
     variationFamilies: ["student-forum", "citizen-forum", "association-forum"]
+  },
+  {
+    id: "write-article",
+    section: "writing",
+    label: "Article argumenté",
+    format: "article court pour un magazine ou un site local",
+    allowedPromptShape: "Défendre une idée, illustrer, nuancer et proposer une piste d'action.",
+    skillTags: ["argument-structure", "task-completion", "formal-register", "connectors"],
+    distractorStrategy: "Sans objet",
+    difficultyRange: [3, 5],
+    scoringMethod: "rubric",
+    estimatedMinutes: 18,
+    cooldownFamily: "writing-article",
+    variationFamilies: ["campus-magazine", "local-journal", "association-blog"]
   },
   {
     id: "speak-monologue",
