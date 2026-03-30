@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Élan B2 icon">
+  <rect width="128" height="128" rx="28" fill="#1d3d34"/>
+  <path d="M32 92V36h38c16.2 0 26 8.2 26 22 0 12.8-8.4 20.4-23.8 20.4H48V92H32Zm16-27h20.4c7.8 0 11.8-2.6 11.8-7.6 0-5.2-4-7.8-11.8-7.8H48V65Z" fill="#f5eadb"/>
+  <path d="M43 21h24l-12 11H39l4-11Z" fill="#f47b4a"/>
+  <text x="84" y="101" font-size="22" font-family="Georgia, serif" text-anchor="middle" fill="#d3a625">B2</text>
+</svg>

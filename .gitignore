@@ -1,0 +1,11 @@
+node_modules
+.next
+coverage
+dist
+out
+npm-debug.log*
+.DS_Store
+.npm-cache
+.vercel
+*.tsbuildinfo
+DELF_B2_official
