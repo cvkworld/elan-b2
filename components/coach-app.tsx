@@ -217,6 +217,12 @@ const oralSignals = [
   "Utiliser une concession courte, puis revenir à ton critère central."
 ];
 
+const supportHighlights = [
+  "Paiement sécurisé via PayPal.Me",
+  "Aucun détail bancaire affiché sur le site",
+  "Le don arrive directement sur le compte PayPal du créateur"
+];
+
 export function CoachApp() {
   const [state, setState] = useState<StoredCoachState>(() => buildStateFromAttempts([]));
   const [activeTab, setActiveTab] = useState<TabId>("today");
@@ -1562,6 +1568,37 @@ export function CoachApp() {
             </div>
           </div>
         </header>
+
+        <section className="support-panel" aria-label="Soutenir le projet">
+          <div className="support-copy">
+            <p className="eyebrow">Support</p>
+            <h3>Aider Élan B2 à grandir</h3>
+            <p className="muted">
+              Merci de soutenir un coach DELF indépendant. Le don passe par PayPal.Me, donc aucun détail bancaire
+              n&apos;est partagé sur le site.
+            </p>
+            <div className="support-proof-row">
+              {supportHighlights.map((item) => (
+                <span className="support-proof" key={item}>
+                  {item}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="support-actions-panel">
+            <div className="paypal-badge" aria-hidden="true">
+              <span className="paypal-badge-back">Pay</span>
+              <span className="paypal-badge-front">Pal.Me</span>
+            </div>
+            <a className="button button-support" href={siteMeta.donationUrl} rel="noreferrer" target="_blank">
+              {siteMeta.donationLabel}
+            </a>
+            <p className="small-note">
+              Merci pour chaque contribution. Elle aide à financer de nouveaux sujets, plus de corrections et un
+              meilleur suivi.
+            </p>
+          </div>
+        </section>
 
         {activeTab === "today" ? (
           <div className="panel-stack">

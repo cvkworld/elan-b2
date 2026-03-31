@@ -103,6 +103,7 @@ input[type="radio"] {
 
 .brand-block,
 .hero-panel,
+.support-panel,
 .panel,
 .task-card,
 .resource-card,
@@ -123,6 +124,7 @@ input[type="radio"] {
 .brand-block h1,
 .hero-panel h2,
 .community-card h3,
+.support-panel h3,
 .panel h3,
 .task-card h3,
 .task-card h4,
@@ -376,6 +378,7 @@ input[type="radio"] {
 }
 
 .hero-panel,
+.support-panel,
 .panel,
 .task-card {
   border-radius: 2rem;
@@ -498,6 +501,78 @@ input[type="radio"] {
   margin: 0;
   color: var(--muted);
   line-height: 1.55;
+}
+
+.support-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(260px, 360px);
+  gap: 1.4rem;
+  align-items: center;
+  margin-top: 1rem;
+  padding: 1.35rem 1.5rem;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.92) 0%, rgba(239, 248, 255, 0.82) 52%, rgba(255, 248, 222, 0.76) 100%);
+  border: 1px solid rgba(216, 230, 219, 0.82);
+  box-shadow: 0 18px 34px rgba(16, 55, 41, 0.06);
+}
+
+.support-copy {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.support-proof-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.support-proof {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.48rem 0.82rem;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid rgba(199, 222, 240, 0.9);
+  color: var(--forest-soft);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.support-actions-panel {
+  display: grid;
+  justify-items: start;
+  gap: 0.85rem;
+  padding: 1rem 1.1rem;
+  border-radius: 1.5rem;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(199, 222, 240, 0.78);
+}
+
+.paypal-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.4rem;
+  padding-left: 0.55rem;
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+.paypal-badge-back,
+.paypal-badge-front {
+  display: inline-flex;
+}
+
+.paypal-badge-back {
+  color: #003087;
+  transform: translateX(0.34rem);
+}
+
+.paypal-badge-front {
+  color: #009cde;
 }
 
 .hero-actions,
@@ -982,8 +1057,13 @@ input[type="radio"] {
     min-height: auto;
   }
 
+  .support-panel,
   .hero-side {
     width: 100%;
+  }
+
+  .support-panel {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1016,8 +1096,13 @@ input[type="radio"] {
     grid-template-columns: 1fr;
   }
 
+  .support-actions-panel,
   .support-stack {
     width: 100%;
+  }
+
+  .support-panel {
+    padding: 1.15rem;
   }
 
   .two-col {
