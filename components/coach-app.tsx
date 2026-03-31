@@ -16,6 +16,7 @@ import {
   scoreObjectiveTask
 } from "@/lib/generator";
 import { publicReadingExercises, resolveCuratedCitation } from "@/lib/public-reading";
+import { publicWritingExercises } from "@/lib/public-writing";
 import { loadStoredCoachState, saveStoredCoachState } from "@/lib/storage";
 import {
   Attempt,
@@ -44,7 +45,7 @@ type CuratedAnswerMap = Record<string, { choiceIndex?: number; boolValue?: boole
 const tabs: Array<{ id: TabId; label: string; description: string }> = [
   { id: "today", label: "Aujourd'hui", description: "Session courte et ciblée" },
   { id: "reading", label: "Compréhension écrite", description: "4 dossiers publics + générateur" },
-  { id: "writing", label: "Production écrite", description: "Sujets + modèles haut niveau" },
+  { id: "writing", label: "Production écrite", description: "12 sujets publics + générateur" },
   { id: "listening", label: "Compréhension orale", description: "Écoute guidée" },
   { id: "speaking", label: "Production orale", description: "Monologue et interaction" },
   { id: "mock", label: "Mock Exam", description: "Simulation chronométrée" },
@@ -218,6 +219,9 @@ export function CoachApp() {
   const [activeReadingExerciseId, setActiveReadingExerciseId] = useState<string>(
     publicReadingExercises[0]?.id ?? ""
   );
+  const [activeWritingExerciseId, setActiveWritingExerciseId] = useState<string>(
+    publicWritingExercises[0]?.id ?? ""
+  );
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [transcriptVisible, setTranscriptVisible] = useState<Record<string, boolean>>({});
   const [reviewFilter, setReviewFilter] = useState("");
@@ -266,6 +270,12 @@ export function CoachApp() {
       publicReadingExercises.find((exercise) => exercise.id === activeReadingExerciseId) ??
       publicReadingExercises[0],
     [activeReadingExerciseId]
+  );
+  const activeWritingExercise = useMemo(
+    () =>
+      publicWritingExercises.find((exercise) => exercise.id === activeWritingExerciseId) ??
+      publicWritingExercises[0],
+    [activeWritingExerciseId]
   );
 
   const overallReadiness = useMemo(
@@ -341,8 +351,8 @@ export function CoachApp() {
     if (activeTab === "writing") {
       return {
         eyebrow: "Production écrite",
-        title: "Écrire une copie ambitieuse, structurée et crédible",
-        text: "On vise ici une vraie méthode de copie : thèse claire, arguments utiles, concession et conclusion solide."
+        title: "Douze sujets publics probables + des variantes nouvelles",
+        text: "Travaille d’abord sur 12 formats très plausibles avec modèles haut niveau, puis passe aux sujets générés pour élargir ton entraînement."
       };
     }
 
@@ -1237,6 +1247,60 @@ export function CoachApp() {
         ) : null}
 
         {section === "reading" && activeReadingExercise ? renderPrivateReadingExercise(activeReadingExercise) : null}
+
+        {section === "writing" ? (
+          <section className="panel">
+            <div className="panel-head">
+              <div>
+                <p className="eyebrow">Banque publique</p>
+                <h3>Douze sujets probables de production écrite</h3>
+              </div>
+              <div className="hero-actions">
+                <button
+                  className="button button-secondary"
+                  onClick={() =>
+                    setActiveWritingExerciseId(
+                      publicWritingExercises[Math.floor(Math.random() * publicWritingExercises.length)]?.id ??
+                        publicWritingExercises[0].id
+                    )
+                  }
+                  type="button"
+                >
+                  Choisir un sujet au hasard
+                </button>
+                <span className="pill">{publicWritingExercises.length} sujets publics</span>
+              </div>
+            </div>
+            <p className="muted">
+              Ces 12 sujets reprennent les formats les plus plausibles du DELF B2 : lettre, forum, article et rapport bref, avec modèle de copie haut niveau.
+            </p>
+            <div className="reading-option-grid">
+              {publicWritingExercises.map((exercise) => {
+                const isActive = exercise.id === activeWritingExercise?.id;
+                const teaser = `${exercise.content.brief.slice(0, 190)}${exercise.content.brief.length > 190 ? "..." : ""}`;
+
+                return (
+                  <button
+                    className={`reading-option-card ${isActive ? "reading-option-card-active" : ""}`}
+                    key={exercise.id}
+                    onClick={() => setActiveWritingExerciseId(exercise.id)}
+                    type="button"
+                  >
+                    <div className="reading-option-head">
+                      <span className="pill">{exercise.content.formatLabel}</span>
+                      <span className="pill">Public</span>
+                    </div>
+                    <strong>{exercise.title}</strong>
+                    <span>{exercise.subtitle}</span>
+                    <small>{teaser}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
+        {section === "writing" && activeWritingExercise ? renderProductiveTask(activeWritingExercise) : null}
 
         <section className="panel">
           <div className="panel-head">
