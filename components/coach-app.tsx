@@ -2,7 +2,7 @@
 
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { SpeakingRecorder } from "@/components/speaking-recorder";
-import { supplementalResources, sectionMeta } from "@/lib/delf-data";
+import { supplementalResources, sectionMeta, topicSeeds } from "@/lib/delf-data";
 import { evaluateProduction } from "@/lib/feedback";
 import {
   buildStudyPlan,
@@ -190,6 +190,22 @@ function sectionReadinessTone(score: number | null) {
   return "fragile";
 }
 
+function resolveThemeGroup(topicId: string, topicLabel: string) {
+  const matched = topicSeeds.find((seed) => topicId === seed.id || topicId.startsWith(`${seed.id}-`));
+
+  if (matched) {
+    return {
+      id: matched.id,
+      label: matched.label
+    };
+  }
+
+  return {
+    id: topicId,
+    label: topicLabel
+  };
+}
+
 function tabToSection(tab: TabId): PracticeSection | null {
   if (tab === "reading" || tab === "writing" || tab === "listening" || tab === "speaking") {
     return tab;
@@ -336,6 +352,51 @@ export function CoachApp() {
       label: bucket.label,
       value: average(bucket.values, 0)
     }));
+  }, [state.attempts]);
+
+  const themeCoverage = useMemo(() => {
+    const buckets = new Map<
+      string,
+      {
+        label: string;
+        values: number[];
+        count: number;
+        lastTimestamp: string;
+      }
+    >();
+
+    state.attempts.forEach((attempt) => {
+      const theme = resolveThemeGroup(attempt.topicId, attempt.topicLabel);
+      const bucket = buckets.get(theme.id) ?? {
+        label: theme.label,
+        values: [],
+        count: 0,
+        lastTimestamp: attempt.timestamp
+      };
+
+      bucket.values.push(attempt.score);
+      bucket.count += 1;
+      if (attempt.timestamp > bucket.lastTimestamp) {
+        bucket.lastTimestamp = attempt.timestamp;
+      }
+
+      buckets.set(theme.id, bucket);
+    });
+
+    return Array.from(buckets.entries())
+      .map(([id, bucket]) => ({
+        id,
+        label: bucket.label,
+        count: bucket.count,
+        averageScore: average(bucket.values, 0),
+        lastTimestamp: bucket.lastTimestamp
+      }))
+      .sort((left, right) => {
+        if (right.count !== left.count) {
+          return right.count - left.count;
+        }
+        return right.lastTimestamp.localeCompare(left.lastTimestamp);
+      });
   }, [state.attempts]);
 
   const filteredAttempts = useMemo(() => {
@@ -1362,7 +1423,6 @@ export function CoachApp() {
     );
   }
 
-  const topicSnapshots = Object.keys(profile.topicScores).length > 0 ? Object.entries(profile.topicScores) : [];
   const heroMetrics = [
     {
       label: "Readiness",
@@ -1734,18 +1794,19 @@ export function CoachApp() {
               <div className="panel-head">
                 <div>
                   <p className="eyebrow">Themes</p>
-                  <h3>Couverture des thèmes B2</h3>
+                  <h3>Thèmes réellement travaillés</h3>
                 </div>
+                <p className="muted">Chaque ligne combine le nombre d&apos;essais enregistrés et ton score coach moyen.</p>
               </div>
               <div className="tag-row">
-                {topicSnapshots.length > 0 ? (
-                  topicSnapshots.map(([topic, score]) => (
-                    <span className="pill" key={topic}>
-                      {topic} · {score}
+                {themeCoverage.length > 0 ? (
+                  themeCoverage.map((theme) => (
+                    <span className="pill" key={theme.id}>
+                      {theme.label} · {theme.count} tentative{theme.count > 1 ? "s" : ""} · score moyen {theme.averageScore}
                     </span>
                   ))
                 ) : (
-                  <span className="pill">Les thèmes apparaîtront après plusieurs séances.</span>
+                  <span className="pill">Les thèmes apparaîtront après tes premières réponses corrigées.</span>
                 )}
               </div>
             </section>
