@@ -17,6 +17,7 @@ import {
 } from "@/lib/generator";
 import { publicReadingExercises, resolveCuratedCitation } from "@/lib/public-reading";
 import { publicWritingExercises } from "@/lib/public-writing";
+import { siteMeta } from "@/lib/site-meta";
 import { loadStoredCoachState, saveStoredCoachState } from "@/lib/storage";
 import {
   Attempt,
@@ -41,6 +42,12 @@ type TabId =
 type TodaySlot = "comprehension" | "grammar" | "productive";
 type PracticeSection = Extract<ExamSection, "reading" | "writing" | "listening" | "speaking">;
 type CuratedAnswerMap = Record<string, { choiceIndex?: number; boolValue?: boolean; text?: string }>;
+type PresenceState = {
+  activeVisitors: number | null;
+  connected: boolean;
+  estimated: boolean;
+  ttlMs: number;
+};
 
 const tabs: Array<{ id: TabId; label: string; description: string }> = [
   { id: "today", label: "Aujourd'hui", description: "Session courte et ciblée" },
@@ -226,6 +233,12 @@ export function CoachApp() {
   const [transcriptVisible, setTranscriptVisible] = useState<Record<string, boolean>>({});
   const [reviewFilter, setReviewFilter] = useState("");
   const [hydrated, setHydrated] = useState(false);
+  const [presence, setPresence] = useState<PresenceState>({
+    activeVisitors: null,
+    connected: false,
+    estimated: true,
+    ttlMs: 45_000
+  });
   const deferredReviewFilter = useDeferredValue(reviewFilter);
   const privateAnswers = curatedAnswers;
   const revealedPrivateCorrections = revealedCuratedCorrections;
@@ -251,6 +264,87 @@ export function CoachApp() {
       saveStoredCoachState(state);
     }
   }, [hydrated, state]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const sessionId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `presence-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+    let active = true;
+    const heartbeatEveryMs = 20_000;
+    let intervalId = 0;
+
+    const syncPresence = async (method: "POST" | "DELETE" = "POST") => {
+      try {
+        const response = await fetch("/api/presence", {
+          method,
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ sessionId }),
+          cache: "no-store",
+          keepalive: method === "DELETE"
+        });
+
+        if (!response.ok || !active) {
+          return;
+        }
+
+        const payload = (await response.json()) as {
+          activeVisitors: number;
+          estimated: boolean;
+          ttlMs: number;
+        };
+
+        setPresence({
+          activeVisitors: payload.activeVisitors,
+          connected: true,
+          estimated: payload.estimated,
+          ttlMs: payload.ttlMs
+        });
+      } catch {
+        if (active) {
+          setPresence((current) => ({
+            ...current,
+            connected: false
+          }));
+        }
+      }
+    };
+
+    void syncPresence();
+    intervalId = window.setInterval(() => {
+      void syncPresence();
+    }, heartbeatEveryMs);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void syncPresence();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      void fetch("/api/presence", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ sessionId }),
+        cache: "no-store",
+        keepalive: true
+      }).catch(() => undefined);
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -330,6 +424,9 @@ export function CoachApp() {
     const dates = new Set(state.attempts.map((attempt) => attempt.timestamp.slice(0, 10)));
     return dates.size;
   }, [state.attempts]);
+
+  const liveVisitorsValue = presence.activeVisitors === null ? "..." : `~${presence.activeVisitors}`;
+  const visitorWindowSeconds = Math.round(presence.ttlMs / 1000);
 
   const heroCopy = useMemo(() => {
     if (activeTab === "today") {
@@ -1332,6 +1429,23 @@ export function CoachApp() {
   }
 
   const topicSnapshots = Object.keys(profile.topicScores).length > 0 ? Object.entries(profile.topicScores) : [];
+  const heroMetrics = [
+    {
+      label: "Visiteurs actifs",
+      value: liveVisitorsValue,
+      detail: presence.estimated ? "estimation en direct" : "en direct"
+    },
+    {
+      label: "Lecture publique",
+      value: `${publicReadingExercises.length}`,
+      detail: "dossiers commentés"
+    },
+    {
+      label: "Écriture publique",
+      value: `${publicWritingExercises.length}`,
+      detail: "sujets probables"
+    }
+  ];
 
   return (
     <div className="coach-shell">
@@ -1340,6 +1454,11 @@ export function CoachApp() {
           <p className="eyebrow">Personal DELF coach</p>
           <h1>Élan B2</h1>
           <p className="muted">Lecture, écriture, écoute et oral avec génération plus utile et moins répétitive.</p>
+          <div className="brand-badges">
+            <span className="brand-badge">Lecture ciblée</span>
+            <span className="brand-badge">Écriture probable</span>
+            <span className="brand-badge">Feedback coach</span>
+          </div>
         </div>
 
         <div className="readiness-card">
@@ -1347,6 +1466,47 @@ export function CoachApp() {
           <div className="readiness-score">{overallReadiness}</div>
           <p className="muted">{studyDays} jours de pratique enregistrés.</p>
         </div>
+
+        <section className="community-card" aria-live="polite">
+          <div className="community-head">
+            <div>
+              <p className="eyebrow">Communauté</p>
+              <h3>Audience active</h3>
+            </div>
+            <span className={`live-pill ${presence.connected ? "live-pill-active" : ""}`}>
+              <span className="live-dot" />
+              {liveVisitorsValue} en ligne
+            </span>
+          </div>
+          <p className="muted">
+            Estimation basée sur les visiteurs actifs des {visitorWindowSeconds} dernières secondes.
+          </p>
+          <div className="rail-chip-grid">
+            <div className="rail-chip">
+              <strong>{publicReadingExercises.length}</strong>
+              <span>dossiers de lecture</span>
+            </div>
+            <div className="rail-chip">
+              <strong>{publicWritingExercises.length}</strong>
+              <span>sujets d&apos;écriture</span>
+            </div>
+          </div>
+          <div className="support-stack">
+            {siteMeta.donationReady ? (
+              <a className="button button-support" href={siteMeta.donationUrl} rel="noreferrer" target="_blank">
+                Faire un don
+              </a>
+            ) : (
+              <button className="button button-support button-disabled" disabled type="button">
+                Faire un don
+              </button>
+            )}
+            <a className="button button-secondary" href={siteMeta.repoUrl} rel="noreferrer" target="_blank">
+              Voir le projet
+            </a>
+          </div>
+          <p className="small-note">{siteMeta.donationHint}</p>
+        </section>
 
         <nav className="tab-nav" aria-label="Navigation principale">
           {tabs.map((tab) => (
@@ -1370,18 +1530,42 @@ export function CoachApp() {
 
       <main className="coach-stage">
         <header className="hero-panel">
-          <div>
+          <div className="hero-copy">
             <p className="eyebrow">{heroCopy.eyebrow}</p>
             <h2>{heroCopy.title}</h2>
             <p className="muted">{heroCopy.text}</p>
+            <div className="hero-ribbon">
+              <span className={`live-pill ${presence.connected ? "live-pill-active" : ""}`}>
+                <span className="live-dot" />
+                {presence.estimated ? "Audience estimée" : "Audience en direct"}
+              </span>
+              <span className="pill">Contenu original</span>
+              <span className="pill">Feedback coach</span>
+            </div>
           </div>
-          <div className="hero-actions">
-            <button className="button button-secondary" onClick={() => setActiveTab("mock")} type="button">
-              Aller au mock
-            </button>
-            <button className="button button-ghost" onClick={recomposeToday} type="button">
-              Recomposer aujourd&apos;hui
-            </button>
+          <div className="hero-side">
+            <div className="hero-metrics">
+              {heroMetrics.map((metric) => (
+                <div className="hero-metric" key={metric.label}>
+                  <span>{metric.label}</span>
+                  <strong>{metric.value}</strong>
+                  <small>{metric.detail}</small>
+                </div>
+              ))}
+            </div>
+            <p className="hero-note">
+              L&apos;app reste locale pour la progression, mais la présence publique est maintenant visible en temps
+              réel
+              estimée.
+            </p>
+            <div className="hero-actions">
+              <button className="button button-secondary" onClick={() => setActiveTab("mock")} type="button">
+                Aller au mock
+              </button>
+              <button className="button button-ghost" onClick={recomposeToday} type="button">
+                Recomposer aujourd&apos;hui
+              </button>
+            </div>
           </div>
         </header>
 
