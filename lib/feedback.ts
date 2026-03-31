@@ -45,6 +45,33 @@ const topicalTokens = [
   "priorité"
 ];
 
+const positionMarkers = [
+  "à mon avis",
+  "à mon sens",
+  "selon moi",
+  "je pense",
+  "je crois",
+  "il me semble",
+  "je suis favorable",
+  "je suis opposé",
+  "je souhaite",
+  "je voudrais"
+];
+
+const exampleMarkers = ["par exemple", "notamment", "en effet", "comme le montre", "c'est le cas", "ainsi"];
+
+const casualRegisterMarkers = ["salut", "coucou", "hello", "lol", "mdr", "franchement", "grave", "super"];
+
+const farewellMarkers = [
+  "je vous prie d'agreer",
+  "je vous prie d’agréer",
+  "veuillez agreer",
+  "veuillez agréer",
+  "salutations distinguees",
+  "salutations distinguées",
+  "cordialement"
+];
+
 const commonFrenchWords = new Set([
   "à",
   "afin",
@@ -140,6 +167,116 @@ const commonFrenchWords = new Set([
   "vous"
 ]);
 
+const promptGenericWords = new Set([
+  "argument",
+  "arguments",
+  "article",
+  "condition",
+  "conclusion",
+  "contribution",
+  "concrete",
+  "concrète",
+  "debat",
+  "débat",
+  "destinataire",
+  "developpe",
+  "développe",
+  "developpes",
+  "développes",
+  "donne",
+  "donnes",
+  "ecris",
+  "écris",
+  "forum",
+  "lettre",
+  "minimum",
+  "objectif",
+  "objection",
+  "opinion",
+  "position",
+  "prendre",
+  "propose",
+  "proposition",
+  "question",
+  "reagis",
+  "réagis",
+  "reagir",
+  "réagir",
+  "realisme",
+  "réalisme",
+  "realiste",
+  "réaliste",
+  "reponse",
+  "réponse",
+  "sujet",
+  "termes",
+  "theme",
+  "thème",
+  "traiter"
+]);
+
+function normalizeToken(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z'-]+/g, "")
+    .replace(/^['-]+|['-]+$/g, "")
+    .trim();
+}
+
+function tokenizeForMatch(text: string) {
+  return (text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .match(/[a-z'-]+/g) ?? [])
+    .map((token) => normalizeToken(token))
+    .filter(Boolean);
+}
+
+const normalizedCommonFrenchWords = new Set(Array.from(commonFrenchWords).map((word) => normalizeToken(word)));
+const promptStopwords = new Set([
+  ...Array.from(normalizedCommonFrenchWords),
+  ...Array.from(promptGenericWords).map((word) => normalizeToken(word))
+]);
+
+function roughlyMatchesKeyword(keyword: string, token: string) {
+  if (keyword === token) {
+    return true;
+  }
+
+  if (keyword.length < 5 || token.length < 5) {
+    return false;
+  }
+
+  return keyword.startsWith(token) || token.startsWith(keyword);
+}
+
+function extractPromptKeywords(task: Extract<TaskVariant, { section: "writing" }>) {
+  const pool = [
+    task.title,
+    task.subtitle,
+    task.topicLabel,
+    task.content.brief,
+    ...task.content.outline
+  ].join(" ");
+
+  const frequencies = new Map<string, number>();
+  tokenizeForMatch(pool).forEach((token) => {
+    if (token.length < 5 || promptStopwords.has(token)) {
+      return;
+    }
+
+    frequencies.set(token, (frequencies.get(token) ?? 0) + 1);
+  });
+
+  return Array.from(frequencies.entries())
+    .sort((left, right) => right[1] - left[1] || right[0].length - left[0].length)
+    .slice(0, 10)
+    .map(([token]) => token);
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
@@ -183,6 +320,8 @@ function analyzeText(text: string) {
     wordCount: words.length,
     uniqueRatio: words.length === 0 ? 0 : uniqueWords.size / words.length,
     contentUniqueRatio: contentWords.length === 0 ? 0 : uniqueContentWords.size / contentWords.length,
+    paragraphs,
+    words,
     paragraphCount: paragraphs.length,
     sentenceCount: sentences.length,
     connectorHits,
@@ -208,49 +347,163 @@ function analyzeText(text: string) {
   };
 }
 
-function scoreWritingRubric(rubric: Rubric, text: string, targetWords = 250): RubricScore[] {
+function analyzeWritingFit(task: Extract<TaskVariant, { section: "writing" }>, text: string) {
   const metrics = analyzeText(text);
-  const completionRatio = metrics.wordCount / targetWords;
-  const taskScore = clamp(completionRatio * 92, 0, 96);
-  const argumentBase =
-    6 +
-    Math.min(metrics.sentenceCount, 8) * 4 +
-    Math.min(metrics.connectorHits.length, 5) * 8 +
-    (metrics.hasConcession ? 12 : 0) +
-    (metrics.hasConclusion ? 10 : 0) +
-    metrics.topicalHits.length * 5;
-  const coherenceBase =
-    8 +
-    Math.min(metrics.paragraphCount, 4) * 16 +
-    Math.min(metrics.sentenceCount, 8) * 3 +
-    Math.min(metrics.connectorHits.length, 5) * 6 +
-    (metrics.hasConclusion ? 4 : 0);
-  const lexiconBase =
-    8 +
-    metrics.contentUniqueRatio * 34 +
-    Math.min(metrics.commonWordRatio * 28, 18) +
-    metrics.topicalHits.length * 6 +
-    metrics.formalHits.length * 4;
-  const accuracyBase =
-    8 +
-    Math.min(metrics.sentenceCount, 8) * 4 +
-    Math.min(metrics.commonWordRatio * 42, 24) +
-    Math.min(metrics.punctuationMarks, 8) * 2 +
-    metrics.formalHits.length * 3 -
-    metrics.informalHits.length * 12;
+  const normalizedText = tokenizeForMatch(text).join(" ");
+  const promptKeywords = extractPromptKeywords(task);
+  const matchedKeywords = promptKeywords.filter((keyword) =>
+    metrics.words.some((word) => roughlyMatchesKeyword(normalizeToken(keyword), normalizeToken(word)))
+  );
+  const topicCoverage = promptKeywords.length === 0 ? 0.5 : matchedKeywords.length / promptKeywords.length;
+  const letterExpected = normalizeToken(task.content.formatLabel).includes("lettre");
+  const hasGreeting = /(?:^|\n)\s*(madame|monsieur)\b/i.test(text);
+  const introParagraphIndex =
+    letterExpected && hasGreeting && tokenizeForMatch(metrics.paragraphs[0] ?? "").length <= 4 ? 1 : 0;
+  const firstParagraph = metrics.paragraphs[introParagraphIndex] ?? "";
+  const firstParagraphWords = tokenizeForMatch(firstParagraph).length;
+  const bodyParagraphCount = Math.max(
+    metrics.paragraphCount - (introParagraphIndex + 1) - (metrics.hasConclusion && metrics.paragraphCount > 1 ? 1 : 0),
+    0
+  );
+  const hasFarewell = farewellMarkers.some((marker) => normalizedText.includes(normalizeToken(marker)));
+  const hasPosition = positionMarkers.some((marker) => normalizedText.includes(normalizeToken(marker)));
+  const exampleHits = exampleMarkers.filter((marker) => normalizedText.includes(normalizeToken(marker)));
+  const hasIntroduction = firstParagraphWords >= 12 && (hasPosition || metrics.sentenceCount >= 3);
+  const hasDevelopment = bodyParagraphCount >= 1 || (metrics.sentenceCount >= 4 && metrics.wordCount >= 80);
+  const articleOrForumExpected =
+    normalizeToken(task.content.formatLabel).includes("article") ||
+    normalizeToken(task.content.formatLabel).includes("forum");
+  const casualHits = casualRegisterMarkers.filter((marker) =>
+    normalizedText.includes(normalizeToken(marker))
+  );
+  const exclamationCount = (text.match(/!/g) ?? []).length;
 
-  const taskCap = metrics.likelyGibberish ? 6 : metrics.wordCount < 15 ? 10 : metrics.wordCount < 40 ? 22 : 100;
-  const argumentCap = metrics.likelyGibberish ? 8 : metrics.wordCount < 15 ? 12 : metrics.wordCount < 40 ? 26 : metrics.wordCount < 90 ? 48 : 98;
-  const coherenceCap = metrics.likelyGibberish ? 10 : metrics.wordCount < 15 ? 14 : metrics.wordCount < 40 ? 28 : metrics.wordCount < 90 ? 52 : 95;
-  const lexiconCap = metrics.likelyGibberish ? 10 : metrics.wordCount < 15 ? 14 : metrics.wordCount < 40 ? 30 : metrics.wordCount < 90 ? 58 : 96;
-  const accuracyCap = metrics.likelyGibberish ? 10 : metrics.wordCount < 15 ? 14 : metrics.wordCount < 40 ? 32 : metrics.wordCount < 90 ? 60 : 92;
+  const structureCoverage =
+    [hasIntroduction, hasDevelopment, metrics.hasConcession, metrics.hasConclusion].filter(Boolean).length / 4;
+
+  let formatAdequacy = 0.65;
+  if (letterExpected) {
+    formatAdequacy = clamp(
+      (hasGreeting ? 0.38 : 0) +
+        (hasFarewell ? 0.32 : 0) +
+        (metrics.formalHits.length > 0 || hasPosition ? 0.18 : 0) +
+        (casualHits.length === 0 ? 0.12 : 0),
+      0,
+      1
+    );
+  } else if (articleOrForumExpected) {
+    formatAdequacy = clamp(
+      0.42 +
+        (hasPosition ? 0.16 : 0) +
+        (exampleHits.length > 0 ? 0.12 : 0) +
+        (metrics.informalHits.length === 0 ? 0.15 : -0.12) +
+        (casualHits.length === 0 ? 0.1 : -0.12),
+      0,
+      1
+    );
+  }
+
+  const registerAdequacy = clamp(
+    0.34 +
+      Math.min(metrics.formalHits.length, 2) * 0.12 +
+      (metrics.informalHits.length === 0 ? 0.12 : -0.14 * metrics.informalHits.length) +
+      (casualHits.length === 0 ? 0.18 : -0.18 * casualHits.length) +
+      (exclamationCount === 0 ? 0.08 : exclamationCount > 2 ? -0.08 : 0) +
+      (letterExpected && hasGreeting && hasFarewell ? 0.16 : 0),
+    0,
+    1
+  );
+
+  return {
+    ...metrics,
+    promptKeywords,
+    matchedKeywords,
+    topicCoverage,
+    hasGreeting,
+    hasFarewell,
+    hasPosition,
+    exampleHits,
+    hasIntroduction,
+    hasDevelopment,
+    letterExpected,
+    articleOrForumExpected,
+    casualHits,
+    exclamationCount,
+    structureCoverage,
+    formatAdequacy,
+    registerAdequacy
+  };
+}
+
+function scoreWritingRubric(task: Extract<TaskVariant, { section: "writing" }>, text: string): RubricScore[] {
+  const rubric = task.rubric;
+  if (!rubric) {
+    throw new Error("Writing task is missing its rubric.");
+  }
+
+  const targetWords = task.content.targetWords;
+  const metrics = analyzeWritingFit(task, text);
+  const completionRatio = metrics.wordCount / targetWords;
+  const offTopicCap =
+    metrics.topicCoverage === 0 ? 24 : metrics.topicCoverage < 0.2 ? 38 : metrics.topicCoverage < 0.35 ? 56 : 100;
+  const structureCap =
+    metrics.structureCoverage < 0.26 ? 34 : metrics.structureCoverage < 0.51 ? 56 : 100;
+  const registerCap =
+    metrics.registerAdequacy < 0.25 ? 34 : metrics.registerAdequacy < 0.5 ? 54 : 100;
+  const shortCap = metrics.likelyGibberish
+    ? 10
+    : metrics.wordCount < 15
+      ? 14
+      : metrics.wordCount < 40
+        ? 30
+        : metrics.wordCount < 90
+          ? 62
+          : 100;
+
+  const taskBase =
+    6 +
+    completionRatio * 44 +
+    metrics.topicCoverage * 28 +
+    metrics.formatAdequacy * 12 +
+    (metrics.hasPosition ? 8 : 0);
+  const argumentBase =
+    10 +
+    Math.min(metrics.sentenceCount, 9) * 3 +
+    Math.min(metrics.connectorHits.length, 5) * 6 +
+    (metrics.hasConcession ? 12 : 0) +
+    (metrics.exampleHits.length > 0 ? 10 : 0) +
+    (metrics.hasPosition ? 8 : 0) +
+    metrics.topicCoverage * 12;
+  const coherenceBase =
+    10 +
+    (metrics.hasIntroduction ? 12 : 0) +
+    (metrics.hasDevelopment ? 18 : 0) +
+    (metrics.hasConclusion ? 14 : 0) +
+    Math.min(metrics.paragraphCount, 4) * 8 +
+    Math.min(metrics.connectorHits.length, 5) * 4;
+  const lexiconBase =
+    10 +
+    metrics.contentUniqueRatio * 24 +
+    metrics.topicCoverage * 18 +
+    metrics.matchedKeywords.length * 4 +
+    Math.min(metrics.commonWordRatio * 18, 14) +
+    metrics.formalHits.length * 3;
+  const accuracyBase =
+    12 +
+    Math.min(metrics.sentenceCount, 8) * 3 +
+    Math.min(metrics.commonWordRatio * 26, 18) +
+    metrics.registerAdequacy * 22 +
+    Math.min(metrics.punctuationMarks, 8) * 1.5 -
+    metrics.informalHits.length * 10 -
+    metrics.casualHits.length * 10 -
+    (metrics.exclamationCount > 2 ? 8 : 0);
 
   const scores: Record<string, number> = {
-    task: clamp(taskScore, 0, taskCap),
-    argument: clamp(argumentBase, 0, argumentCap),
-    coherence: clamp(coherenceBase, 0, coherenceCap),
-    lexicon: clamp(lexiconBase, 0, lexiconCap),
-    accuracy: clamp(accuracyBase, 0, accuracyCap)
+    task: clamp(taskBase, 0, Math.min(shortCap, offTopicCap, metrics.letterExpected && metrics.formatAdequacy < 0.35 ? 48 : 100)),
+    argument: clamp(argumentBase, 0, Math.min(shortCap, offTopicCap + 10, structureCap, 98)),
+    coherence: clamp(coherenceBase, 0, Math.min(shortCap, structureCap, 95)),
+    lexicon: clamp(lexiconBase, 0, Math.min(shortCap, offTopicCap === 24 ? 44 : offTopicCap + 20, 96)),
+    accuracy: clamp(accuracyBase, 0, Math.min(shortCap, registerCap, 92))
   };
 
   return rubric.categories.map((category) => ({
@@ -259,24 +512,35 @@ function scoreWritingRubric(rubric: Rubric, text: string, targetWords = 250): Ru
     score: Math.round(scores[category.id] ?? 50),
     reason:
       category.id === "task"
-        ? `${metrics.wordCount} mots produits pour un objectif de ${targetWords}+${metrics.tooShortForReliableScoring ? " : texte encore trop bref." : "."}`
+        ? `${metrics.wordCount} mots sur ${targetWords}+ ; thème repris par ${metrics.matchedKeywords.length}/${Math.max(
+            metrics.promptKeywords.length,
+            1
+          )} repères${metrics.tooShortForReliableScoring ? " ; texte encore trop bref." : "."}`
         : category.id === "argument"
           ? metrics.likelyGibberish
             ? "Texte non exploitable pour juger une vraie argumentation."
-            : `${metrics.connectorHits.length} connecteurs visibles et ${
-                metrics.hasConcession ? "une concession repérée" : "pas encore de vraie concession"
-              }.`
+            : `${metrics.connectorHits.length} connecteurs, ${
+                metrics.exampleHits.length > 0 ? "au moins un exemple visible" : "peu d'exemples visibles"
+              } et ${metrics.hasConcession ? "une concession repérée" : "pas encore de concession nette"}.`
           : category.id === "coherence"
-            ? metrics.wordCount < 15
-              ? "Texte trop court pour montrer une progression logique stable."
-              : `${metrics.paragraphCount} blocs lisibles et ${metrics.sentenceCount} phrases distinctes.`
+            ? `${metrics.hasIntroduction ? "introduction présente" : "introduction peu visible"}, ${
+                metrics.hasDevelopment ? "développement présent" : "développement insuffisant"
+              } et ${metrics.hasConclusion ? "conclusion présente" : "conclusion absente"}.`
             : category.id === "lexicon"
               ? metrics.likelyGibberish
                 ? "Le texte contient trop peu de français exploitable pour juger le lexique."
-                : `${Math.round(metrics.contentUniqueRatio * 100)} % de variété sur les mots porteurs et ${metrics.topicalHits.length} mots de thème.`
-              : metrics.likelyGibberish
-                ? "Texte non exploitable : correction grammaticale impossible à estimer sérieusement."
-                : `${metrics.informalHits.length === 0 ? "Registre stable" : "Registre parfois trop relâché"} pour une réponse de type DELF.`
+                : `${metrics.matchedKeywords.length} repères de thème retrouvés${
+                    metrics.matchedKeywords.length > 0 ? ` (${metrics.matchedKeywords.slice(0, 3).join(", ")})` : ""
+                  } et ${Math.round(metrics.contentUniqueRatio * 100)} % de variété sur les mots porteurs.`
+              : `${
+                  metrics.letterExpected
+                    ? metrics.hasGreeting && metrics.hasFarewell
+                      ? "Cadre de lettre bien tenu"
+                      : "Cadre de lettre encore incomplet"
+                    : metrics.registerAdequacy >= 0.6
+                      ? "Registre globalement adapté"
+                      : "Registre encore trop relâché"
+                }${metrics.casualHits.length > 0 ? ` ; marqueurs trop familiers : ${metrics.casualHits.join(", ")}` : ""}.`
   }));
 }
 
@@ -377,7 +641,7 @@ export function evaluateProduction(task: TaskVariant, submission: string): Feedb
 
   const scores =
     task.section === "writing"
-      ? scoreWritingRubric(rubric, submission, task.content.targetWords)
+      ? scoreWritingRubric(task, submission)
       : scoreSpeakingRubric(rubric, submission);
   const score = weightedAverage(scores, rubric);
   const strengths = pickStrengths(scores);
