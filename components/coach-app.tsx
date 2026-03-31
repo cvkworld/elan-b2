@@ -176,7 +176,15 @@ function average(values: number[], fallback: number) {
   return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
 }
 
-function sectionReadinessTone(score: number) {
+function averageStrict(values: number[]) {
+  if (values.length === 0) {
+    return null;
+  }
+  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+function sectionReadinessTone(score: number | null) {
+  if (score === null) return "fragile";
   if (score >= 80) return "strong";
   if (score >= 60) return "steady";
   return "fragile";
@@ -285,19 +293,35 @@ export function CoachApp() {
     [activeWritingExerciseId]
   );
 
-  const overallReadiness = useMemo(
+  const sectionAttemptCounts = useMemo(() => {
+    const counts = {
+      listening: 0,
+      reading: 0,
+      writing: 0,
+      speaking: 0,
+      grammar: 0
+    } satisfies Record<ExamSection, number>;
+
+    state.attempts.forEach((attempt) => {
+      counts[attempt.section] += 1;
+    });
+
+    return counts;
+  }, [state.attempts]);
+
+  const attemptedOfficialScores = useMemo(
     () =>
-      average(
-        [
-          profile.sectionScores.listening,
-          profile.sectionScores.reading,
-          profile.sectionScores.writing,
-          profile.sectionScores.speaking
-        ],
-        47
-      ),
-    [profile.sectionScores]
+      (["listening", "reading", "writing", "speaking"] as const)
+        .filter((section) => sectionAttemptCounts[section] > 0)
+        .map((section) => profile.sectionScores[section]),
+    [profile.sectionScores, sectionAttemptCounts]
   );
+
+  const overallReadiness = useMemo(
+    () => averageStrict(attemptedOfficialScores),
+    [attemptedOfficialScores]
+  );
+  const overallReadinessDisplay = overallReadiness === null ? "—" : `${overallReadiness}`;
 
   const rubricAverages = useMemo(() => {
     const buckets = new Map<string, { label: string; values: number[] }>();
@@ -1342,8 +1366,8 @@ export function CoachApp() {
   const heroMetrics = [
     {
       label: "Readiness",
-      value: `${overallReadiness}`,
-      detail: "niveau actuel"
+      value: overallReadinessDisplay,
+      detail: overallReadiness === null ? "aucune donnée" : "niveau actuel"
     },
     {
       label: "Lecture publique",
@@ -1373,8 +1397,12 @@ export function CoachApp() {
 
         <div className="readiness-card">
           <p className="eyebrow">Readiness</p>
-          <div className="readiness-score">{overallReadiness}</div>
-          <p className="muted">{studyDays} jours de pratique enregistrés.</p>
+          <div className="readiness-score">{overallReadinessDisplay}</div>
+          <p className="muted">
+            {state.attempts.length > 0
+              ? `${studyDays} jour${studyDays > 1 ? "s" : ""} de réponses corrigées enregistrés dans ce navigateur.`
+              : "Aucune réponse corrigée enregistrée dans ce navigateur."}
+          </p>
         </div>
 
         <section className="community-card" aria-label="Support rapide">
@@ -1450,7 +1478,7 @@ export function CoachApp() {
               ))}
             </div>
             <p className="hero-note">
-              La progression reste personnelle, et les statistiques détaillées restent côté admin dans le dashboard.
+              Les barres restent vides tant qu&apos;aucune réponse n&apos;a été soumise et corrigée dans ce navigateur.
             </p>
             <div className="hero-actions">
               <button className="button button-secondary" onClick={() => setActiveTab("mock")} type="button">
@@ -1650,18 +1678,24 @@ export function CoachApp() {
                   <p className="eyebrow">Progress</p>
                   <h3>Readiness par section</h3>
                 </div>
+                <p className="muted">Seules les sections déjà tentées affichent une progression.</p>
               </div>
               <div className="section-bars">
                 {(Object.keys(sectionMeta) as ExamSection[]).map((section) => {
-                  const score = profile.sectionScores[section];
+                  const score = sectionAttemptCounts[section] > 0 ? profile.sectionScores[section] : null;
                   return (
                     <div className="section-bar" key={section}>
                       <div className="section-bar-head">
                         <strong>{sectionMeta[section].label}</strong>
-                        <span>{score}</span>
+                        <span>{score === null ? "—" : score}</span>
                       </div>
                       <div className="progress-track">
-                        <div className={`progress-fill tone-${sectionReadinessTone(score)}`} style={{ width: `${score}%` }} />
+                        {score !== null ? (
+                          <div
+                            className={`progress-fill tone-${sectionReadinessTone(score)}`}
+                            style={{ width: `${score}%` }}
+                          />
+                        ) : null}
                       </div>
                     </div>
                   );
