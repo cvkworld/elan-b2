@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { SpeakingRecorder } from "@/components/speaking-recorder";
 import { supplementalResources, sectionMeta } from "@/lib/delf-data";
 import { evaluateProduction } from "@/lib/feedback";
@@ -15,11 +15,7 @@ import {
   generateTodayBundle,
   scoreObjectiveTask
 } from "@/lib/generator";
-import {
-  isPrivateReadingImportError,
-  parsePrivateReadingPackFromFile,
-  resolveCuratedCitation
-} from "@/lib/private-reading";
+import { publicReadingExercises, resolveCuratedCitation } from "@/lib/public-reading";
 import { loadStoredCoachState, saveStoredCoachState } from "@/lib/storage";
 import {
   Attempt,
@@ -43,11 +39,11 @@ type TabId =
   | "progress";
 type TodaySlot = "comprehension" | "grammar" | "productive";
 type PracticeSection = Extract<ExamSection, "reading" | "writing" | "listening" | "speaking">;
-type PrivateAnswerMap = Record<string, { choiceIndex?: number; boolValue?: boolean; text?: string }>;
+type CuratedAnswerMap = Record<string, { choiceIndex?: number; boolValue?: boolean; text?: string }>;
 
 const tabs: Array<{ id: TabId; label: string; description: string }> = [
   { id: "today", label: "Aujourd'hui", description: "Session courte et ciblée" },
-  { id: "reading", label: "Compréhension écrite", description: "Textes DELF B2 renouvelés" },
+  { id: "reading", label: "Compréhension écrite", description: "4 dossiers publics + générateur" },
   { id: "writing", label: "Production écrite", description: "Sujets + modèles haut niveau" },
   { id: "listening", label: "Compréhension orale", description: "Écoute guidée" },
   { id: "speaking", label: "Production orale", description: "Monologue et interaction" },
@@ -90,10 +86,6 @@ function hasSectionPractice(value: unknown): value is SectionPracticePacks {
   );
 }
 
-function hasPrivateReadingPacks(value: unknown) {
-  return Array.isArray(value);
-}
-
 function buildStateFromAttempts(attempts: Attempt[], variantSeed = getDateKey()): StoredCoachState {
   const dateKey = getDateKey();
   const today = generateTodayBundle(attempts, dateKey, `${variantSeed}-today`);
@@ -101,13 +93,12 @@ function buildStateFromAttempts(attempts: Attempt[], variantSeed = getDateKey())
   const practice = generateSectionPractice(attempts, dateKey, `${variantSeed}-practice`);
 
   return {
-    version: 3,
+    version: 4,
     attempts,
     telemetry: trimTelemetry([...today.telemetry, ...mock.telemetry, ...practice.telemetry]),
     todayBundle: today.bundle,
     mockExam: mock.session,
-    sectionPractice: practice.packs,
-    privateReadingPacks: []
+    sectionPractice: practice.packs
   };
 }
 
@@ -125,27 +116,19 @@ function normalizeStoredState(raw: unknown): StoredCoachState | null {
   if (
     candidate.todayBundle?.dateKey === dateKey &&
     candidate.mockExam?.dateKey === dateKey &&
-    hasSectionPractice(candidate.sectionPractice) &&
-    hasPrivateReadingPacks(candidate.privateReadingPacks)
+    hasSectionPractice(candidate.sectionPractice)
   ) {
     return {
-      version: 3,
+      version: 4,
       attempts: candidate.attempts,
       telemetry: trimTelemetry(candidate.telemetry ?? []),
       todayBundle: candidate.todayBundle,
       mockExam: candidate.mockExam,
-      sectionPractice: candidate.sectionPractice,
-      privateReadingPacks: candidate.privateReadingPacks
+      sectionPractice: candidate.sectionPractice
     };
   }
 
-  const rebuilt = buildStateFromAttempts(candidate.attempts);
-  return {
-    ...rebuilt,
-    privateReadingPacks: hasPrivateReadingPacks(candidate.privateReadingPacks)
-      ? candidate.privateReadingPacks
-      : []
-  };
+  return buildStateFromAttempts(candidate.attempts);
 }
 
 function syncStateDate(state: StoredCoachState): StoredCoachState {
@@ -153,12 +136,11 @@ function syncStateDate(state: StoredCoachState): StoredCoachState {
   if (
     state.todayBundle.dateKey === dateKey &&
     state.mockExam.dateKey === dateKey &&
-    hasSectionPractice(state.sectionPractice) &&
-    hasPrivateReadingPacks(state.privateReadingPacks)
+    hasSectionPractice(state.sectionPractice)
   ) {
     return {
       ...state,
-      version: 3,
+      version: 4,
       telemetry: trimTelemetry(state.telemetry)
     };
   }
@@ -166,7 +148,6 @@ function syncStateDate(state: StoredCoachState): StoredCoachState {
   const rebuilt = buildStateFromAttempts(state.attempts);
   return {
     ...rebuilt,
-    privateReadingPacks: state.privateReadingPacks,
     telemetry: trimTelemetry([...state.telemetry, ...rebuilt.telemetry])
   };
 }
@@ -232,15 +213,19 @@ export function CoachApp() {
   const [state, setState] = useState<StoredCoachState>(() => buildStateFromAttempts([]));
   const [activeTab, setActiveTab] = useState<TabId>("today");
   const [objectiveAnswers, setObjectiveAnswers] = useState<Record<string, Record<string, number>>>({});
-  const [privateAnswers, setPrivateAnswers] = useState<PrivateAnswerMap>({});
-  const [revealedPrivateCorrections, setRevealedPrivateCorrections] = useState<Record<string, boolean>>({});
+  const [curatedAnswers, setCuratedAnswers] = useState<CuratedAnswerMap>({});
+  const [revealedCuratedCorrections, setRevealedCuratedCorrections] = useState<Record<string, boolean>>({});
+  const [activeReadingExerciseId, setActiveReadingExerciseId] = useState<string>(
+    publicReadingExercises[0]?.id ?? ""
+  );
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [transcriptVisible, setTranscriptVisible] = useState<Record<string, boolean>>({});
   const [reviewFilter, setReviewFilter] = useState("");
-  const [importStatus, setImportStatus] = useState<{ tone: "info" | "error"; message: string } | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const deferredReviewFilter = useDeferredValue(reviewFilter);
-  const privateImportRef = useRef<HTMLInputElement>(null);
+  const privateAnswers = curatedAnswers;
+  const revealedPrivateCorrections = revealedCuratedCorrections;
+  const setRevealedPrivateCorrections = setRevealedCuratedCorrections;
 
   useEffect(() => {
     const stored = loadStoredCoachState();
@@ -275,6 +260,12 @@ export function CoachApp() {
   const studyPlan = useMemo(
     () => buildStudyPlan(state.attempts, state.todayBundle),
     [state.attempts, state.todayBundle]
+  );
+  const activeReadingExercise = useMemo(
+    () =>
+      publicReadingExercises.find((exercise) => exercise.id === activeReadingExerciseId) ??
+      publicReadingExercises[0],
+    [activeReadingExerciseId]
   );
 
   const overallReadiness = useMemo(
@@ -342,8 +333,8 @@ export function CoachApp() {
     if (activeTab === "reading") {
       return {
         eyebrow: "Compréhension écrite",
-        title: "Lire comme au DELF B2, pas comme un quiz figé",
-        text: "Trois textes réalistes, des questions commentées et des formats qui changent vraiment à chaque génération."
+        title: "Quatre dossiers publics + des sujets renouvelés",
+        text: "Travaille d’abord sur quatre vrais formats fixes avec corrigés, puis enchaîne avec les générateurs pour éviter la répétition."
       };
     }
 
@@ -411,8 +402,8 @@ export function CoachApp() {
     }));
   }
 
-  function updatePrivateChoice(questionId: string, choiceIndex: number) {
-    setPrivateAnswers((current) => ({
+  function updateCuratedChoice(questionId: string, choiceIndex: number) {
+    setCuratedAnswers((current) => ({
       ...current,
       [questionId]: {
         ...current[questionId],
@@ -421,8 +412,8 @@ export function CoachApp() {
     }));
   }
 
-  function updatePrivateBoolean(questionId: string, boolValue: boolean) {
-    setPrivateAnswers((current) => ({
+  function updateCuratedBoolean(questionId: string, boolValue: boolean) {
+    setCuratedAnswers((current) => ({
       ...current,
       [questionId]: {
         ...current[questionId],
@@ -431,8 +422,8 @@ export function CoachApp() {
     }));
   }
 
-  function updatePrivateText(questionId: string, text: string) {
-    setPrivateAnswers((current) => ({
+  function updateCuratedText(questionId: string, text: string) {
+    setCuratedAnswers((current) => ({
       ...current,
       [questionId]: {
         ...current[questionId],
@@ -440,6 +431,10 @@ export function CoachApp() {
       }
     }));
   }
+
+  const updatePrivateChoice = updateCuratedChoice;
+  const updatePrivateBoolean = updateCuratedBoolean;
+  const updatePrivateText = updateCuratedText;
 
   function playListeningTask(task: TaskVariant) {
     if (task.section !== "listening" || typeof window === "undefined" || !("speechSynthesis" in window)) {
@@ -470,57 +465,6 @@ export function CoachApp() {
         );
       });
     });
-  }
-
-  async function importPrivateReadingPack(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-
-    setImportStatus({ tone: "info", message: "Import du dossier privé en cours..." });
-
-    try {
-      const pack = await parsePrivateReadingPackFromFile(file);
-      startTransition(() => {
-        setState((current) => {
-          const synced = syncStateDate(current);
-          return {
-            ...synced,
-            privateReadingPacks: [
-              ...synced.privateReadingPacks.filter((existing) => existing.id !== pack.id),
-              pack
-            ]
-          };
-        });
-      });
-      setImportStatus({
-        tone: "info",
-        message: `${file.name} a été importé localement. Ce dossier reste privé à ce navigateur.`
-      });
-      setActiveTab("reading");
-    } catch (error) {
-      setImportStatus({
-        tone: "error",
-        message: isPrivateReadingImportError(error)
-          ? error.message
-          : "Le fichier n'a pas pu être importé. Vérifie qu'il s'agit bien du dossier DOCX attendu."
-      });
-    } finally {
-      event.target.value = "";
-    }
-  }
-
-  function clearPrivateReadingPacks() {
-    startTransition(() => {
-      setState((current) => ({
-        ...syncStateDate(current),
-        privateReadingPacks: []
-      }));
-    });
-    setPrivateAnswers({});
-    setRevealedPrivateCorrections({});
-    setImportStatus({ tone: "info", message: "Le dossier privé a été supprimé de ce navigateur." });
   }
 
   function replaceTodaySlot(slot: TodaySlot) {
@@ -769,12 +713,12 @@ export function CoachApp() {
       <section className="task-card" key={exercise.id}>
         <div className="task-head">
           <div>
-            <p className="eyebrow">Dossier privé importé</p>
+            <p className="eyebrow">Sujet public DELF B2</p>
             <h3>{exercise.title}</h3>
             <p className="muted">{exercise.sourceLabel}</p>
           </div>
           <div className="task-meta">
-            <span className="pill">Privé</span>
+            <span className="pill">Public</span>
             <span className="pill">{exercise.questions.length} questions</span>
           </div>
         </div>
@@ -886,15 +830,15 @@ export function CoachApp() {
           <div className="feedback-card">
             <div className="feedback-head">
               <div>
-                <p className="eyebrow">Bilan privé</p>
-                <h4>Corrigé affiché pour cet exercice</h4>
+                <p className="eyebrow">Bilan guidé</p>
+                <h4>Corrigé affiché pour ce sujet public</h4>
               </div>
               <span className="pill">
                 {objective.correct}/{objective.total} réponses objectives repérées
               </span>
             </div>
             <p className="muted">
-              Les réponses courtes ne sont pas notées automatiquement. Le corrigé te donne ici la logique attendue, les points-clés et les citations utiles.
+              Les réponses courtes ne sont pas notées automatiquement. Le corrigé te donne ici la logique attendue, les points-clés et les citations utiles pour viser une réponse très forte.
             </p>
           </div>
         ) : null}
@@ -1244,57 +1188,55 @@ export function CoachApp() {
           <section className="panel">
             <div className="panel-head">
               <div>
-                <p className="eyebrow">Dossier privé</p>
-                <h3>Importer un pack de compréhension écrite</h3>
+                <p className="eyebrow">Dossiers publics</p>
+                <h3>Quatre sujets fixes de compréhension écrite</h3>
               </div>
               <div className="hero-actions">
-                <input
-                  accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                  className="private-file-input"
-                  onChange={importPrivateReadingPack}
-                  ref={privateImportRef}
-                  type="file"
-                />
-                <button className="button button-secondary" onClick={() => privateImportRef.current?.click()} type="button">
-                  Importer un dossier privé (.docx)
+                <button
+                  className="button button-secondary"
+                  onClick={() =>
+                    setActiveReadingExerciseId(
+                      publicReadingExercises[Math.floor(Math.random() * publicReadingExercises.length)]?.id ??
+                        publicReadingExercises[0].id
+                    )
+                  }
+                  type="button"
+                >
+                  Choisir un sujet au hasard
                 </button>
-                {state.privateReadingPacks.length > 0 ? (
-                  <button className="button button-ghost" onClick={clearPrivateReadingPacks} type="button">
-                    Supprimer le dossier privé
-                  </button>
-                ) : null}
+                <span className="pill">{publicReadingExercises.length} options publiques</span>
               </div>
             </div>
             <p className="muted">
-              Le fichier reste dans ce navigateur. Les exercices importés n&apos;entrent ni dans Aujourd&apos;hui, ni dans le mock, ni dans le contenu public.
+              Ces quatre dossiers restent visibles sur le site pour t&apos;entraîner quand tu veux. Ils sont séparés des sujets générés plus bas.
             </p>
-            {importStatus ? (
-              <p className={importStatus.tone === "error" ? "notice-error" : "notice"}>{importStatus.message}</p>
-            ) : null}
+            <div className="reading-option-grid">
+              {publicReadingExercises.map((exercise) => {
+                const isActive = exercise.id === activeReadingExercise?.id;
+                const teaser = `${exercise.passage[0].slice(0, 180)}${exercise.passage[0].length > 180 ? "..." : ""}`;
+
+                return (
+                  <button
+                    className={`reading-option-card ${isActive ? "reading-option-card-active" : ""}`}
+                    key={exercise.id}
+                    onClick={() => setActiveReadingExerciseId(exercise.id)}
+                    type="button"
+                  >
+                    <div className="reading-option-head">
+                      <span className="pill">{exercise.questions.length} questions</span>
+                      <span className="pill">Public</span>
+                    </div>
+                    <strong>{exercise.title}</strong>
+                    <span>{exercise.sourceLabel}</span>
+                    <small>{teaser}</small>
+                  </button>
+                );
+              })}
+            </div>
           </section>
         ) : null}
 
-        {section === "reading" && state.privateReadingPacks.length > 0
-          ? state.privateReadingPacks.map((pack) => (
-              <section className="panel" key={pack.id}>
-                <div className="panel-head">
-                  <div>
-                    <p className="eyebrow">Pack privé</p>
-                    <h3>{pack.label}</h3>
-                  </div>
-                  <p className="muted">{pack.filename}</p>
-                </div>
-                <div className="tag-row">
-                  <span className="pill">{pack.exercises.length} exercices importés</span>
-                  <span className="pill">stockage local uniquement</span>
-                </div>
-              </section>
-            ))
-          : null}
-
-        {section === "reading"
-          ? state.privateReadingPacks.flatMap((pack) => pack.exercises).map((exercise) => renderPrivateReadingExercise(exercise))
-          : null}
+        {section === "reading" && activeReadingExercise ? renderPrivateReadingExercise(activeReadingExercise) : null}
 
         <section className="panel">
           <div className="panel-head">

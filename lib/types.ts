@@ -328,13 +328,12 @@ export interface TelemetryEvent {
 }
 
 export interface StoredCoachState {
-  version: 3;
+  version: 4;
   attempts: Attempt[];
   telemetry: TelemetryEvent[];
   todayBundle: TodayBundle;
   mockExam: MockExamSession;
   sectionPractice: SectionPracticePacks;
-  privateReadingPacks: CuratedReadingPack[];
 }
 
 export interface SkillNode {

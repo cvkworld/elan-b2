@@ -1,7 +1,7 @@
 import { StoredCoachState } from "@/lib/types";
 
-const STORAGE_KEY = "elan-b2-state-v2";
-const LEGACY_KEYS = ["elan-b2-state-v1"];
+const STORAGE_KEY = "elan-b2-state-v3";
+const LEGACY_KEYS = ["elan-b2-state-v2", "elan-b2-state-v1"];
 
 export function loadStoredCoachState(): StoredCoachState | null {
   if (typeof window === "undefined") {

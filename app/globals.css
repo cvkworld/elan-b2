@@ -527,6 +527,54 @@ input[type="radio"] {
   margin-top: 0.82rem;
 }
 
+.reading-option-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.reading-option-card {
+  display: grid;
+  gap: 0.65rem;
+  padding: 1rem;
+  text-align: left;
+  border: 1px solid #d9e8ce;
+  border-bottom-width: 4px;
+  border-radius: 1.3rem;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fdf3 100%);
+  color: var(--ink);
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+}
+
+.reading-option-card:hover {
+  transform: translateY(-2px);
+  border-color: #8ad044;
+  box-shadow: 0 16px 30px rgba(88, 204, 2, 0.12);
+}
+
+.reading-option-card-active {
+  border-color: #58cc02;
+  box-shadow: 0 18px 36px rgba(88, 204, 2, 0.16);
+}
+
+.reading-option-card strong {
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.reading-option-card span,
+.reading-option-card small {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.reading-option-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 .private-boolean-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -694,6 +742,10 @@ input[type="radio"] {
 @media (max-width: 760px) {
   .coach-stage {
     padding: 1rem;
+  }
+
+  .reading-option-grid {
+    grid-template-columns: 1fr;
   }
 
   .hero-panel,
