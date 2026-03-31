@@ -5,6 +5,5 @@ export const siteMeta = {
   donationUrl,
   donationReady: true,
   donationLabel: donationUrl.includes("paypal.me") ? "Faire un don via PayPal" : "Faire un don",
-  donationHint:
-    "Chaque don arrive sur ton compte PayPal, puis tu peux le garder sur PayPal ou le transférer vers ta banque."
+  donationHint: "Merci pour ton soutien. Le paiement passe par PayPal, pas directement par le site."
 };

@@ -42,12 +42,6 @@ type TabId =
 type TodaySlot = "comprehension" | "grammar" | "productive";
 type PracticeSection = Extract<ExamSection, "reading" | "writing" | "listening" | "speaking">;
 type CuratedAnswerMap = Record<string, { choiceIndex?: number; boolValue?: boolean; text?: string }>;
-type PresenceState = {
-  activeVisitors: number | null;
-  connected: boolean;
-  estimated: boolean;
-  ttlMs: number;
-};
 
 const tabs: Array<{ id: TabId; label: string; description: string }> = [
   { id: "today", label: "Aujourd'hui", description: "Session courte et ciblée" },
@@ -219,8 +213,8 @@ const oralSignals = [
 
 const supportHighlights = [
   "Paiement sécurisé via PayPal.Me",
-  "Aucun détail bancaire affiché sur le site",
-  "Le don arrive directement sur le compte PayPal du créateur"
+  "Projet indépendant, contenu original",
+  "Chaque don aide à financer de nouveaux sujets et corrections"
 ];
 
 export function CoachApp() {
@@ -239,12 +233,6 @@ export function CoachApp() {
   const [transcriptVisible, setTranscriptVisible] = useState<Record<string, boolean>>({});
   const [reviewFilter, setReviewFilter] = useState("");
   const [hydrated, setHydrated] = useState(false);
-  const [presence, setPresence] = useState<PresenceState>({
-    activeVisitors: null,
-    connected: false,
-    estimated: true,
-    ttlMs: 45_000
-  });
   const deferredReviewFilter = useDeferredValue(reviewFilter);
   const privateAnswers = curatedAnswers;
   const revealedPrivateCorrections = revealedCuratedCorrections;
@@ -270,87 +258,6 @@ export function CoachApp() {
       saveStoredCoachState(state);
     }
   }, [hydrated, state]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const sessionId =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `presence-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-
-    let active = true;
-    const heartbeatEveryMs = 20_000;
-    let intervalId = 0;
-
-    const syncPresence = async (method: "POST" | "DELETE" = "POST") => {
-      try {
-        const response = await fetch("/api/presence", {
-          method,
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ sessionId }),
-          cache: "no-store",
-          keepalive: method === "DELETE"
-        });
-
-        if (!response.ok || !active) {
-          return;
-        }
-
-        const payload = (await response.json()) as {
-          activeVisitors: number;
-          estimated: boolean;
-          ttlMs: number;
-        };
-
-        setPresence({
-          activeVisitors: payload.activeVisitors,
-          connected: true,
-          estimated: payload.estimated,
-          ttlMs: payload.ttlMs
-        });
-      } catch {
-        if (active) {
-          setPresence((current) => ({
-            ...current,
-            connected: false
-          }));
-        }
-      }
-    };
-
-    void syncPresence();
-    intervalId = window.setInterval(() => {
-      void syncPresence();
-    }, heartbeatEveryMs);
-
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
-        void syncPresence();
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibility);
-
-    return () => {
-      active = false;
-      window.clearInterval(intervalId);
-      document.removeEventListener("visibilitychange", handleVisibility);
-      void fetch("/api/presence", {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ sessionId }),
-        cache: "no-store",
-        keepalive: true
-      }).catch(() => undefined);
-    };
-  }, []);
 
   useEffect(() => {
     return () => {
@@ -430,9 +337,6 @@ export function CoachApp() {
     const dates = new Set(state.attempts.map((attempt) => attempt.timestamp.slice(0, 10)));
     return dates.size;
   }, [state.attempts]);
-
-  const liveVisitorsValue = presence.activeVisitors === null ? "..." : `~${presence.activeVisitors}`;
-  const visitorWindowSeconds = Math.round(presence.ttlMs / 1000);
 
   const heroCopy = useMemo(() => {
     if (activeTab === "today") {
@@ -1437,9 +1341,9 @@ export function CoachApp() {
   const topicSnapshots = Object.keys(profile.topicScores).length > 0 ? Object.entries(profile.topicScores) : [];
   const heroMetrics = [
     {
-      label: "Visiteurs actifs",
-      value: liveVisitorsValue,
-      detail: presence.estimated ? "estimation en direct" : "en direct"
+      label: "Readiness",
+      value: `${overallReadiness}`,
+      detail: "niveau actuel"
     },
     {
       label: "Lecture publique",
@@ -1473,20 +1377,15 @@ export function CoachApp() {
           <p className="muted">{studyDays} jours de pratique enregistrés.</p>
         </div>
 
-        <section className="community-card" aria-live="polite">
+        <section className="community-card" aria-label="Support rapide">
           <div className="community-head">
             <div>
-              <p className="eyebrow">Communauté</p>
-              <h3>Audience active</h3>
+              <p className="eyebrow">Support</p>
+              <h3>Projet indépendant</h3>
             </div>
-            <span className={`live-pill ${presence.connected ? "live-pill-active" : ""}`}>
-              <span className="live-dot" />
-              {liveVisitorsValue} en ligne
-            </span>
+            <span className="pill">PayPal.Me</span>
           </div>
-          <p className="muted">
-            Estimation basée sur les visiteurs actifs des {visitorWindowSeconds} dernières secondes.
-          </p>
+          <p className="muted">Si tu veux aider le projet, le soutien se fait simplement via PayPal.</p>
           <div className="rail-chip-grid">
             <div className="rail-chip">
               <strong>{publicReadingExercises.length}</strong>
@@ -1535,12 +1434,9 @@ export function CoachApp() {
             <h2>{heroCopy.title}</h2>
             <p className="muted">{heroCopy.text}</p>
             <div className="hero-ribbon">
-              <span className={`live-pill ${presence.connected ? "live-pill-active" : ""}`}>
-                <span className="live-dot" />
-                {presence.estimated ? "Audience estimée" : "Audience en direct"}
-              </span>
               <span className="pill">Contenu original</span>
               <span className="pill">Feedback coach</span>
+              <span className="pill">Banque publique utile</span>
             </div>
           </div>
           <div className="hero-side">
@@ -1554,9 +1450,7 @@ export function CoachApp() {
               ))}
             </div>
             <p className="hero-note">
-              L&apos;app reste locale pour la progression, mais la présence publique est maintenant visible en temps
-              réel
-              estimée.
+              La progression reste personnelle, et les statistiques détaillées restent côté admin dans le dashboard.
             </p>
             <div className="hero-actions">
               <button className="button button-secondary" onClick={() => setActiveTab("mock")} type="button">
@@ -1574,8 +1468,8 @@ export function CoachApp() {
             <p className="eyebrow">Support</p>
             <h3>Aider Élan B2 à grandir</h3>
             <p className="muted">
-              Merci de soutenir un coach DELF indépendant. Le don passe par PayPal.Me, donc aucun détail bancaire
-              n&apos;est partagé sur le site.
+              Merci de soutenir un coach DELF indépendant. Le don se fait via PayPal.Me et aide à financer de
+              nouveaux sujets, des corrigés plus solides et une meilleure expérience d&apos;entraînement.
             </p>
             <div className="support-proof-row">
               {supportHighlights.map((item) => (
