@@ -1,11 +1,10 @@
-const donationUrl = process.env.NEXT_PUBLIC_DONATION_URL?.trim() ?? "";
+const donationUrl = process.env.NEXT_PUBLIC_DONATION_URL?.trim() || "https://paypal.me/cvk01";
 
 export const siteMeta = {
   repoUrl: "https://github.com/cvkworld/elan-b2",
   donationUrl,
-  donationReady: donationUrl.length > 0,
+  donationReady: true,
+  donationLabel: donationUrl.includes("paypal.me") ? "Faire un don via PayPal" : "Faire un don",
   donationHint:
-    donationUrl.length > 0
-      ? "Chaque don aide à financer de nouveaux sujets, un meilleur suivi et un futur vrai compteur multi-appareils."
-      : "Ajoute NEXT_PUBLIC_DONATION_URL pour activer un vrai bouton de don PayPal, Ko-fi ou Stripe."
+    "Chaque don arrive sur ton compte PayPal, puis tu peux le garder sur PayPal ou le transférer vers ta banque."
 };

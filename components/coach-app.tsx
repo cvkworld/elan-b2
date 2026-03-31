@@ -1492,15 +1492,9 @@ export function CoachApp() {
             </div>
           </div>
           <div className="support-stack">
-            {siteMeta.donationReady ? (
-              <a className="button button-support" href={siteMeta.donationUrl} rel="noreferrer" target="_blank">
-                Faire un don
-              </a>
-            ) : (
-              <button className="button button-support button-disabled" disabled type="button">
-                Faire un don
-              </button>
-            )}
+            <a className="button button-support" href={siteMeta.donationUrl} rel="noreferrer" target="_blank">
+              {siteMeta.donationLabel}
+            </a>
             <a className="button button-secondary" href={siteMeta.repoUrl} rel="noreferrer" target="_blank">
               Voir le projet
             </a>
