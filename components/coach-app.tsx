@@ -15,7 +15,12 @@ import {
   generateTodayBundle,
   scoreObjectiveTask
 } from "@/lib/generator";
-import { publicGrammarLessons } from "@/lib/public-grammar";
+import {
+  type GrammarDifficulty,
+  getGrammarLessonExercises,
+  grammarDifficultyMeta,
+  publicGrammarLessons
+} from "@/lib/public-grammar";
 import { publicReadingExercises, resolveCuratedCitation } from "@/lib/public-reading";
 import { publicWritingExercises } from "@/lib/public-writing";
 import { siteMeta } from "@/lib/site-meta";
@@ -268,29 +273,34 @@ function grammarLessonSkillTags(lessonId: string): SkillTag[] {
   return ["error-correction"];
 }
 
-function buildPublicGrammarTask(lesson: (typeof publicGrammarLessons)[number]): Extract<TaskVariant, { section: "grammar" }> {
+function buildPublicGrammarTask(
+  lesson: (typeof publicGrammarLessons)[number],
+  difficulty: GrammarDifficulty
+): Extract<TaskVariant, { section: "grammar" }> {
   const skillTags = grammarLessonSkillTags(lesson.id);
+  const levelMeta = grammarDifficultyMeta[difficulty];
+  const exercises = getGrammarLessonExercises(lesson, difficulty);
 
   return {
-    id: `public-${lesson.id}`,
+    id: `public-${lesson.id}-${difficulty}`,
     section: "grammar",
-    templateId: `public-${lesson.id}`,
-    fingerprint: `public-grammar|${lesson.id}`,
+    templateId: `public-${lesson.id}-${difficulty}`,
+    fingerprint: `public-grammar|${lesson.id}|${difficulty}`,
     title: `${sectionMeta.grammar.label} · ${lesson.title}`,
     subtitle: `Leçon publique · ${lesson.summary}`,
     topicId: lesson.id,
     topicLabel: lesson.title,
     skillTags,
-    difficulty: 2,
-    estimatedMinutes: Math.max(8, lesson.exercises.length * 3),
+    difficulty: difficulty === "basic" ? 2 : difficulty === "exam" ? 3 : 4,
+    estimatedMinutes: Math.max(8, exercises.length * 3),
     scoringMethod: "objective",
     coachHints: [
       "Comprends d'abord la logique de la forme avant de la mémoriser.",
       "Refais les phrases fausses à voix haute pour stabiliser le réflexe."
     ],
     content: {
-      focus: lesson.summary,
-      items: lesson.exercises.map((exercise) => ({
+      focus: `${levelMeta.label} · ${levelMeta.summary}`,
+      items: exercises.map((exercise) => ({
         ...exercise,
         skillTag: skillTags[0]
       }))
@@ -304,6 +314,7 @@ export function CoachApp() {
   const [objectiveAnswers, setObjectiveAnswers] = useState<Record<string, Record<string, number>>>({});
   const [curatedAnswers, setCuratedAnswers] = useState<CuratedAnswerMap>({});
   const [revealedCuratedCorrections, setRevealedCuratedCorrections] = useState<Record<string, boolean>>({});
+  const [activeGrammarDifficulty, setActiveGrammarDifficulty] = useState<GrammarDifficulty>("exam");
   const [activeGrammarLessonId, setActiveGrammarLessonId] = useState<string>(
     publicGrammarLessons[0]?.id ?? ""
   );
@@ -1355,7 +1366,8 @@ export function CoachApp() {
   }
 
   function renderGrammarLesson(lesson: (typeof publicGrammarLessons)[number]) {
-    const task = buildPublicGrammarTask(lesson);
+    const task = buildPublicGrammarTask(lesson, activeGrammarDifficulty);
+    const levelMeta = grammarDifficultyMeta[activeGrammarDifficulty];
     const latestAttempt = latestAttemptForTask(state.attempts, task.id);
     const answers = objectiveAnswers[task.id] ?? {};
 
@@ -1369,11 +1381,26 @@ export function CoachApp() {
           </div>
           <div className="task-meta">
             <span className="pill">{lesson.examples.length} exemples</span>
-            <span className="pill">{lesson.exercises.length} exercices</span>
+            <span className="pill">{task.content.items.length} exercices</span>
+            <span className="pill">{levelMeta.label}</span>
           </div>
         </div>
 
         <div className="stimulus">
+          <p className="notice">{levelMeta.summary}</p>
+          <div className="difficulty-row" role="tablist" aria-label="Niveau de difficulté grammaticale">
+            {(Object.keys(grammarDifficultyMeta) as GrammarDifficulty[]).map((difficulty) => (
+              <button
+                className={`difficulty-chip ${activeGrammarDifficulty === difficulty ? "difficulty-chip-active" : ""}`}
+                key={difficulty}
+                onClick={() => setActiveGrammarDifficulty(difficulty)}
+                type="button"
+              >
+                <strong>{grammarDifficultyMeta[difficulty].label}</strong>
+                <span>{grammarDifficultyMeta[difficulty].summary}</span>
+              </button>
+            ))}
+          </div>
           <div className="two-col">
             <div>
               <p className="eyebrow">Explications</p>
@@ -1493,7 +1520,7 @@ export function CoachApp() {
                   type="button"
                 >
                   <div className="reading-option-head">
-                    <span className="pill">{lesson.exercises.length} exercices</span>
+                    <span className="pill">3 niveaux</span>
                     <span className="pill">Public</span>
                   </div>
                   <strong>{lesson.title}</strong>

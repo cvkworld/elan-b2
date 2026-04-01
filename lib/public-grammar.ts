@@ -6,6 +6,13 @@ export interface PublicGrammarExercise {
   explanation: string;
 }
 
+export type GrammarDifficulty = "basic" | "exam" | "challenge";
+
+export interface GrammarDifficultyMeta {
+  label: string;
+  summary: string;
+}
+
 export interface PublicGrammarExample {
   sentence: string;
   note: string;
@@ -20,6 +27,21 @@ export interface PublicGrammarLesson {
   examples: PublicGrammarExample[];
   exercises: PublicGrammarExercise[];
 }
+
+export const grammarDifficultyMeta: Record<GrammarDifficulty, GrammarDifficultyMeta> = {
+  basic: {
+    label: "Basic",
+    summary: "Repérer la règle et sécuriser les automatismes essentiels."
+  },
+  exam: {
+    label: "Exam",
+    summary: "S'entraîner au niveau attendu dans une copie ou un exercice DELF B2."
+  },
+  challenge: {
+    label: "Challenge",
+    summary: "Aller plus loin avec des choix plus piégeux et des réflexes plus fins."
+  }
+};
 
 function ex(
   id: string,
@@ -461,3 +483,88 @@ export const publicGrammarLessons: PublicGrammarLesson[] = [
     ]
   })
 ];
+
+function cloneExercise(
+  lesson: PublicGrammarLesson,
+  difficulty: GrammarDifficulty,
+  exercise: PublicGrammarExercise,
+  index: number
+): PublicGrammarExercise {
+  return {
+    ...exercise,
+    id: `${lesson.id}-${difficulty}-${index + 1}`,
+    prompt:
+      difficulty === "basic"
+        ? `${exercise.prompt}`
+        : difficulty === "challenge"
+          ? `${exercise.prompt} Fais attention au piège de registre ou de logique.`
+          : exercise.prompt
+  };
+}
+
+function buildRuleCheckExercise(lesson: PublicGrammarLesson): PublicGrammarExercise {
+  return ex(
+    `${lesson.id}-rule-check`,
+    `Quelle idée-clé résume le mieux la règle de ${lesson.title.toLowerCase()} ?`,
+    [
+      lesson.explanations[0],
+      "Il faut surtout éviter cette structure dans tout texte formel.",
+      "Le plus important est de traduire mot à mot depuis sa langue maternelle."
+    ],
+    0,
+    `Le bon point de départ est bien celui-ci : ${lesson.explanations[0]}`
+  );
+}
+
+function buildExampleCheckExercise(lesson: PublicGrammarLesson): PublicGrammarExercise {
+  const example = lesson.examples[0];
+
+  return ex(
+    `${lesson.id}-example-check`,
+    `Dans l'exemple « ${example.sentence} », quelle observation est correcte ?`,
+    [
+      example.note,
+      "Cette phrase montre surtout qu'il faut supprimer le verbe principal.",
+      "Cette phrase prouve qu'aucun contexte n'est nécessaire pour choisir la forme."
+    ],
+    0,
+    example.note
+  );
+}
+
+function buildTipCheckExercise(lesson: PublicGrammarLesson): PublicGrammarExercise {
+  const tip = lesson.examTips[0] ?? lesson.explanations[0];
+
+  return ex(
+    `${lesson.id}-tip-check`,
+    `Quel réflexe DELF B2 est le plus utile pour ${lesson.title.toLowerCase()} ?`,
+    [
+      tip,
+      "Allonger la phrase autant que possible, même si la structure devient floue.",
+      "Éviter totalement cette structure pour ne prendre aucun risque."
+    ],
+    0,
+    tip
+  );
+}
+
+export function getGrammarLessonExercises(
+  lesson: PublicGrammarLesson,
+  difficulty: GrammarDifficulty
+): PublicGrammarExercise[] {
+  const examExercises = lesson.exercises.map((exercise, index) =>
+    cloneExercise(lesson, difficulty, exercise, index)
+  );
+
+  if (difficulty === "basic") {
+    return [buildRuleCheckExercise(lesson), buildExampleCheckExercise(lesson), examExercises[0]].filter(
+      Boolean
+    ) as PublicGrammarExercise[];
+  }
+
+  if (difficulty === "challenge") {
+    return [...examExercises, buildTipCheckExercise(lesson), buildExampleCheckExercise(lesson)];
+  }
+
+  return examExercises;
+}
