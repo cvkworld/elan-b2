@@ -15,6 +15,7 @@ import {
   generateTodayBundle,
   scoreObjectiveTask
 } from "@/lib/generator";
+import { publicGrammarLessons } from "@/lib/public-grammar";
 import { publicReadingExercises, resolveCuratedCitation } from "@/lib/public-reading";
 import { publicWritingExercises } from "@/lib/public-writing";
 import { siteMeta } from "@/lib/site-meta";
@@ -25,6 +26,7 @@ import {
   CuratedReadingQuestion,
   ExamSection,
   SectionPracticePacks,
+  SkillTag,
   StoredCoachState,
   TaskVariant,
   TelemetryEvent
@@ -32,6 +34,7 @@ import {
 
 type TabId =
   | "today"
+  | "grammar"
   | "reading"
   | "writing"
   | "listening"
@@ -45,6 +48,7 @@ type CuratedAnswerMap = Record<string, { choiceIndex?: number; boolValue?: boole
 
 const tabs: Array<{ id: TabId; label: string; description: string }> = [
   { id: "today", label: "Aujourd'hui", description: "Session courte et ciblée" },
+  { id: "grammar", label: "Grammaire", description: "20 leçons + drill coach" },
   { id: "reading", label: "Compréhension écrite", description: "4 dossiers publics + générateur" },
   { id: "writing", label: "Production écrite", description: "12 sujets publics + générateur" },
   { id: "listening", label: "Compréhension orale", description: "Écoute guidée" },
@@ -229,6 +233,12 @@ const writingSignals = [
   "Copie forte : registre stable, connecteurs utiles, pas de remplissage."
 ];
 
+const grammarSignals = [
+  "Règle claire : comprendre d'abord la logique avant de mémoriser l'exemple.",
+  "Réflexe B2 : repérer la structure qui change le sens ou le registre.",
+  "Stabilité : refaire deux ou trois phrases justes vaut mieux qu'une longue fiche floue."
+];
+
 const oralSignals = [
   "Commencer par reformuler le thème et annoncer ta priorité.",
   "Prévoir un exemple concret et une objection possible.",
@@ -241,12 +251,62 @@ const supportHighlights = [
   "Chaque don aide à financer de nouveaux sujets et corrections"
 ];
 
+function grammarLessonSkillTags(lessonId: string): SkillTag[] {
+  if (lessonId === "grammar-discours-indirect") {
+    return ["reported-speech", "error-correction"];
+  }
+
+  if (
+    lessonId === "grammar-subjunctive" ||
+    lessonId === "grammar-conditionnel" ||
+    lessonId === "grammar-infinitive" ||
+    lessonId === "grammar-time-location"
+  ) {
+    return ["hypothesis", "error-correction"];
+  }
+
+  return ["error-correction"];
+}
+
+function buildPublicGrammarTask(lesson: (typeof publicGrammarLessons)[number]): Extract<TaskVariant, { section: "grammar" }> {
+  const skillTags = grammarLessonSkillTags(lesson.id);
+
+  return {
+    id: `public-${lesson.id}`,
+    section: "grammar",
+    templateId: `public-${lesson.id}`,
+    fingerprint: `public-grammar|${lesson.id}`,
+    title: `${sectionMeta.grammar.label} · ${lesson.title}`,
+    subtitle: `Leçon publique · ${lesson.summary}`,
+    topicId: lesson.id,
+    topicLabel: lesson.title,
+    skillTags,
+    difficulty: 2,
+    estimatedMinutes: Math.max(8, lesson.exercises.length * 3),
+    scoringMethod: "objective",
+    coachHints: [
+      "Comprends d'abord la logique de la forme avant de la mémoriser.",
+      "Refais les phrases fausses à voix haute pour stabiliser le réflexe."
+    ],
+    content: {
+      focus: lesson.summary,
+      items: lesson.exercises.map((exercise) => ({
+        ...exercise,
+        skillTag: skillTags[0]
+      }))
+    }
+  };
+}
+
 export function CoachApp() {
   const [state, setState] = useState<StoredCoachState>(() => buildStateFromAttempts([]));
   const [activeTab, setActiveTab] = useState<TabId>("today");
   const [objectiveAnswers, setObjectiveAnswers] = useState<Record<string, Record<string, number>>>({});
   const [curatedAnswers, setCuratedAnswers] = useState<CuratedAnswerMap>({});
   const [revealedCuratedCorrections, setRevealedCuratedCorrections] = useState<Record<string, boolean>>({});
+  const [activeGrammarLessonId, setActiveGrammarLessonId] = useState<string>(
+    publicGrammarLessons[0]?.id ?? ""
+  );
   const [activeReadingExerciseId, setActiveReadingExerciseId] = useState<string>(
     publicReadingExercises[0]?.id ?? ""
   );
@@ -301,6 +361,12 @@ export function CoachApp() {
       publicReadingExercises.find((exercise) => exercise.id === activeReadingExerciseId) ??
       publicReadingExercises[0],
     [activeReadingExerciseId]
+  );
+  const activeGrammarLesson = useMemo(
+    () =>
+      publicGrammarLessons.find((lesson) => lesson.id === activeGrammarLessonId) ??
+      publicGrammarLessons[0],
+    [activeGrammarLessonId]
   );
   const activeWritingExercise = useMemo(
     () =>
@@ -437,6 +503,14 @@ export function CoachApp() {
         eyebrow: "Compréhension écrite",
         title: "Quatre dossiers publics + des sujets renouvelés",
         text: "Travaille d’abord sur quatre vrais formats fixes avec corrigés, puis enchaîne avec les générateurs pour éviter la répétition."
+      };
+    }
+
+    if (activeTab === "grammar") {
+      return {
+        eyebrow: "Grammaire",
+        title: "Leçons essentielles, exemples clairs et exercices ciblés",
+        text: "Travaille les structures les plus utiles pour le DELF B2, puis consolide avec un drill coach renouvelé."
       };
     }
 
@@ -1280,6 +1354,184 @@ export function CoachApp() {
     );
   }
 
+  function renderGrammarLesson(lesson: (typeof publicGrammarLessons)[number]) {
+    const task = buildPublicGrammarTask(lesson);
+    const latestAttempt = latestAttemptForTask(state.attempts, task.id);
+    const answers = objectiveAnswers[task.id] ?? {};
+
+    return (
+      <section className="task-card" key={lesson.id}>
+        <div className="task-head">
+          <div>
+            <p className="eyebrow">Leçon publique</p>
+            <h3>{lesson.title}</h3>
+            <p className="muted">{lesson.summary}</p>
+          </div>
+          <div className="task-meta">
+            <span className="pill">{lesson.examples.length} exemples</span>
+            <span className="pill">{lesson.exercises.length} exercices</span>
+          </div>
+        </div>
+
+        <div className="stimulus">
+          <div className="two-col">
+            <div>
+              <p className="eyebrow">Explications</p>
+              <ul className="hint-list">
+                {lesson.explanations.map((item, index) => (
+                  <li key={`${lesson.id}-explanation-${index}`}>{item}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <p className="eyebrow">Réflexes DELF B2</p>
+              <ul className="hint-list">
+                {lesson.examTips.map((item, index) => (
+                  <li key={`${lesson.id}-tip-${index}`}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          <div className="questions">
+            {lesson.examples.map((example, index) => (
+              <div className="question-block" key={`${lesson.id}-example-${index}`}>
+                <p>
+                  <strong>Exemple {index + 1}.</strong> {example.sentence}
+                </p>
+                <p className="notice">{example.note}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="questions">
+          {task.content.items.map((question, questionIndex) => (
+            <div className="question-block" key={question.id}>
+              <p>
+                <strong>{questionIndex + 1}.</strong> {question.prompt}
+              </p>
+              <div className="choice-grid">
+                {question.choices.map((choice, choiceIndex) => (
+                  <label className="choice" key={`${question.id}-${choiceIndex}`}>
+                    <input
+                      checked={answers[question.id] === choiceIndex}
+                      name={question.id}
+                      onChange={() => updateObjectiveAnswer(task.id, question.id, choiceIndex)}
+                      type="radio"
+                    />
+                    <span>{choice}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="task-actions">
+          <button className="button" onClick={() => submitObjective(task)} type="button">
+            Corriger la leçon
+          </button>
+          <button
+            className="button button-secondary"
+            onClick={() =>
+              setActiveGrammarLessonId(
+                publicGrammarLessons[Math.floor(Math.random() * publicGrammarLessons.length)]?.id ??
+                  publicGrammarLessons[0].id
+              )
+            }
+            type="button"
+          >
+            Choisir une autre leçon
+          </button>
+        </div>
+
+        {renderAttemptFeedback(latestAttempt)}
+        {renderCorrectionKey(task, latestAttempt)}
+      </section>
+    );
+  }
+
+  function renderGrammarPanel() {
+    return (
+      <div className="panel-stack">
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Leçons publiques</p>
+              <h3>Grammaire expliquée avec exemples et exercices</h3>
+            </div>
+            <div className="hero-actions">
+              <button
+                className="button button-secondary"
+                onClick={() =>
+                  setActiveGrammarLessonId(
+                    publicGrammarLessons[Math.floor(Math.random() * publicGrammarLessons.length)]?.id ??
+                      publicGrammarLessons[0].id
+                  )
+                }
+                type="button"
+              >
+                Choisir une leçon au hasard
+              </button>
+              <span className="pill">{publicGrammarLessons.length} leçons publiques</span>
+            </div>
+          </div>
+          <p className="muted">
+            Cette bibliothèque couvre l&apos;article, l&apos;adjectif, les négations, les temps, le subjonctif, le
+            conditionnel, les pronoms, les prépositions et les autres points que tu as demandés.
+          </p>
+          <div className="reading-option-grid">
+            {publicGrammarLessons.map((lesson) => {
+              const isActive = lesson.id === activeGrammarLesson?.id;
+
+              return (
+                <button
+                  className={`reading-option-card ${isActive ? "reading-option-card-active" : ""}`}
+                  key={lesson.id}
+                  onClick={() => setActiveGrammarLessonId(lesson.id)}
+                  type="button"
+                >
+                  <div className="reading-option-head">
+                    <span className="pill">{lesson.exercises.length} exercices</span>
+                    <span className="pill">Public</span>
+                  </div>
+                  <strong>{lesson.title}</strong>
+                  <span>{lesson.summary}</span>
+                  <small>{lesson.explanations[0]}</small>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        {activeGrammarLesson ? renderGrammarLesson(activeGrammarLesson) : null}
+
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">{sectionMeta.grammar.label}</p>
+              <h3>Drill coach renouvelé</h3>
+            </div>
+            <button className="button" onClick={() => replaceTodaySlot("grammar")} type="button">
+              Générer une nouvelle variante
+            </button>
+          </div>
+          <div className="study-plan-grid">
+            {grammarSignals.map((signal, index) => (
+              <article className="plan-chip" key={`grammar-signal-${index}`}>
+                <strong>{signal}</strong>
+                <span>{sectionMeta.grammar.description}</span>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        {renderObjectiveTask(state.todayBundle.grammar, "grammar")}
+      </div>
+    );
+  }
+
   function renderSectionPanel(section: PracticeSection) {
     const tasks = state.sectionPractice[section];
     const signals = section === "reading" ? readingSignals : section === "writing" ? writingSignals : oralSignals;
@@ -1608,6 +1860,7 @@ export function CoachApp() {
           </div>
         ) : null}
 
+        {activeTab === "grammar" ? renderGrammarPanel() : null}
         {tabToSection(activeTab) ? renderSectionPanel(tabToSection(activeTab) as PracticeSection) : null}
 
         {activeTab === "mock" ? (
