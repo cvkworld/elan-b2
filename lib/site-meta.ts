@@ -1,5 +1,6 @@
 const donationUrl = process.env.NEXT_PUBLIC_DONATION_URL?.trim() || "https://paypal.me/cvk01";
-const paypalDonateHostedButtonId = process.env.NEXT_PUBLIC_PAYPAL_DONATE_HOSTED_BUTTON_ID?.trim() || "";
+const paypalDonateHostedButtonId =
+  process.env.NEXT_PUBLIC_PAYPAL_DONATE_HOSTED_BUTTON_ID?.trim() || "MTTJHLG2P9GTC";
 const paypalDonateBusiness = process.env.NEXT_PUBLIC_PAYPAL_DONATE_BUSINESS?.trim() || "";
 const donationMode = paypalDonateHostedButtonId || paypalDonateBusiness ? "paypal-sdk" : "link";
 
