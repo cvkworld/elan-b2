@@ -1,6 +1,7 @@
 "use client";
 
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { PaypalDonateButton } from "@/components/paypal-donate-button";
 import { SpeakingRecorder } from "@/components/speaking-recorder";
 import { supplementalResources, sectionMeta, topicSeeds } from "@/lib/delf-data";
 import { evaluateProduction } from "@/lib/feedback";
@@ -251,7 +252,7 @@ const oralSignals = [
 ];
 
 const supportHighlights = [
-  "Paiement sécurisé via PayPal.Me",
+  "Paiement sécurisé via PayPal",
   "Projet indépendant, contenu original",
   "Chaque don aide à financer de nouveaux sujets et corrections"
 ];
@@ -1750,9 +1751,12 @@ export function CoachApp() {
               <p className="eyebrow">Support</p>
               <h3>Projet indépendant</h3>
             </div>
-            <span className="pill">PayPal.Me</span>
+            <span className="pill">{siteMeta.donationBadge}</span>
           </div>
-          <p className="muted">Si tu veux aider le projet, le soutien se fait simplement via PayPal.</p>
+          <p className="muted">
+            Si tu veux aider le projet, le soutien se fait via PayPal, avec un checkout plus direct dès qu&apos;il est
+            configuré.
+          </p>
           <div className="rail-chip-grid">
             <div className="rail-chip">
               <strong>{publicReadingExercises.length}</strong>
@@ -1764,9 +1768,13 @@ export function CoachApp() {
             </div>
           </div>
           <div className="support-stack">
-            <a className="button button-support" href={siteMeta.donationUrl} rel="noreferrer" target="_blank">
-              {siteMeta.donationLabel}
-            </a>
+            <PaypalDonateButton
+              business={siteMeta.paypalDonateBusiness}
+              className="button button-support"
+              fallbackLabel={siteMeta.donationLabel}
+              fallbackUrl={siteMeta.donationUrl}
+              hostedButtonId={siteMeta.paypalDonateHostedButtonId}
+            />
             <a className="button button-secondary" href={siteMeta.repoUrl} rel="noreferrer" target="_blank">
               Voir le projet
             </a>
@@ -1835,8 +1843,8 @@ export function CoachApp() {
             <p className="eyebrow">Support</p>
             <h3>Aider Élan B2 à grandir</h3>
             <p className="muted">
-              Merci de soutenir un coach DELF indépendant. Le don se fait via PayPal.Me et aide à financer de
-              nouveaux sujets, des corrigés plus solides et une meilleure expérience d&apos;entraînement.
+              Merci de soutenir un coach DELF indépendant. Le don se fait via PayPal et aide à financer de nouveaux
+              sujets, des corrigés plus solides et une meilleure expérience d&apos;entraînement.
             </p>
             <div className="support-proof-row">
               {supportHighlights.map((item) => (
@@ -1849,11 +1857,15 @@ export function CoachApp() {
           <div className="support-actions-panel">
             <div className="paypal-badge" aria-hidden="true">
               <span className="paypal-badge-back">Pay</span>
-              <span className="paypal-badge-front">Pal.Me</span>
+              <span className="paypal-badge-front">Pal</span>
             </div>
-            <a className="button button-support" href={siteMeta.donationUrl} rel="noreferrer" target="_blank">
-              {siteMeta.donationLabel}
-            </a>
+            <PaypalDonateButton
+              business={siteMeta.paypalDonateBusiness}
+              className="button button-support"
+              fallbackLabel={siteMeta.donationLabel}
+              fallbackUrl={siteMeta.donationUrl}
+              hostedButtonId={siteMeta.paypalDonateHostedButtonId}
+            />
             <p className="small-note">
               Merci pour chaque contribution. Elle aide à financer de nouveaux sujets, plus de corrections et un
               meilleur suivi.
